@@ -1,0 +1,14 @@
+nuts_id,region_el,region_en,lat,lon
+EL30,Αττική,Attica,37.98,23.73
+EL41,Βόρειο Αιγαίο,North Aegean,39.10,26.55
+EL42,Νότιο Αιγαίο,South Aegean,36.65,25.20
+EL43,Κρήτη,Crete,35.24,24.81
+EL51,Ανατολική Μακεδονία και Θράκη,Eastern Macedonia and Thrace,41.13,25.40
+EL52,Κεντρική Μακεδονία,Central Macedonia,40.64,22.95
+EL53,Δυτική Μακεδονία,Western Macedonia,40.30,21.60
+EL54,Ήπειρος,Epirus,39.66,20.85
+EL61,Θεσσαλία,Thessaly,39.55,22.20
+EL62,Ιόνια Νησιά,Ionian Islands,38.65,20.55
+EL63,Δυτική Ελλάδα,Western Greece,38.25,21.45
+EL64,Στερεά Ελλάδα,Central Greece,38.60,22.65
+EL65,Πελοπόννησος,Peloponnese,37.50,22.35

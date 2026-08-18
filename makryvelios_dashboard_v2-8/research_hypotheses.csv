@@ -1,0 +1,20 @@
+question_id,hypothesis_id,hypothesis_el,hypothesis_en
+EE1,H1,Περιφέρειες με υψηλότερο επίπεδο οικονομικής ανάπτυξης εμφανίζουν υψηλότερη απορρόφηση δημόσιας δαπάνης,Regions with higher economic development exhibit higher public-expenditure absorption.
+EE1,H2,Περιφέρειες με ισχυρότερο οικοσύστημα έρευνας/καινοτομίας εμφανίζουν υψηλότερη απορρόφηση,Regions with stronger research/innovation ecosystems exhibit higher absorption.
+EE2,H1,Έργα που υλοποιούνται σε Περιφέρειες με υψηλότερη οικονομική ανάπτυξη δημιουργούν περισσότερες νέες θέσεις ερευνητών,Projects in more economically developed regions create more new researcher positions.
+EE2,H2,Έργα που υλοποιούνται σε Περιφέρειες με ισχυρότερο ερευνητικό οικοσύστημα δημιουργούν περισσότερες νέες θέσεις ερευνητών,Projects in regions with stronger research ecosystems create more new researcher positions.
+EE3,H1,Έργα σε Περιφέρειες με υψηλότερη οικονομική ανάπτυξη δημιουργούν υψηλότερη συνολική απασχόληση ερευνητών,Projects in more economically developed regions create greater total research employment.
+EE3,H2,Έργα σε Περιφέρειες με ισχυρότερο ερευνητικό οικοσύστημα δημιουργούν υψηλότερη απασχόληση ερευνητών,Projects in regions with stronger research ecosystems create greater research employment.
+EE3,H3,Περιφέρειες με υψηλή ένταση δαπανών Ε&Α εμφανίζουν υψηλότερη απασχόληση ερευνητών,Regions with higher R&D-expenditure intensity exhibit greater research employment.
+EE4,H1,Περιφέρειες με υψηλότερο επίπεδο οικονομικής ανάπτυξης υλοποιούν μεγαλύτερο αριθμό ερευνητικών έργων,More economically developed regions implement more research projects.
+EE4,H2,Περιφέρειες με ισχυρότερο ερευνητικό και τεχνολογικό οικοσύστημα υλοποιούν περισσότερα ερευνητικά έργα,Regions with stronger research and technological ecosystems implement more research projects.
+EE5,H1,Έργα σε Περιφέρειες με υψηλότερη επιχειρηματική καινοτομία εμφανίζουν μεγαλύτερη συμμετοχή επιχειρήσεων,Projects in regions with higher business innovation exhibit greater firm participation.
+EE5,H2,Έργα σε Περιφέρειες με ισχυρότερο ερευνητικό οικοσύστημα εμφανίζουν υψηλότερη συμμετοχή επιχειρήσεων,Projects in regions with stronger research ecosystems exhibit higher firm participation.
+EE6,H1,Περιφέρειες με υψηλότερα επίπεδα καινοτομίας πραγματοποιούν περισσότερες συνεργασίες,Regions with higher innovation levels undertake more collaborations.
+EE6,H2,Περιφέρειες με ισχυρότερη επιχειρηματική βάση ενισχύουν τις συνεργασίες μεταξύ επιχειρήσεων και ερευνητικών φορέων,Regions with stronger business bases support more firm–research-organisation collaborations.
+EE7,H1,Περιφέρειες με υψηλότερη ένταση δαπανών για Ε&Α δημιουργούν περισσότερα διπλώματα ευρεσιτεχνίας,Regions with higher R&D-expenditure intensity generate more patents.
+EE7,H2,Περιφέρειες με ισχυρότερο ερευνητικό οικοσύστημα δημιουργούν περισσότερα διπλώματα ευρεσιτεχνίας,Regions with stronger research ecosystems generate more patents.
+EE8,H1,Περιφέρειες με υψηλότερα επίπεδα επιστημονικής αριστείας δημιουργούν μεγαλύτερο αριθμό spin-offs,Regions with higher scientific excellence create more spin-offs.
+EE8,H2,Περιφέρειες με ανεπτυγμένα δίκτυα συνεργασίας και ισχυρό ερευνητικό οικοσύστημα ενισχύουν τη δημιουργία spin-offs,Regions with developed collaboration networks and strong research ecosystems foster spin-offs.
+EE9,H1,Περιφέρειες με υψηλότερη ερευνητική και θεσμική ικανότητα ωφελούν μεγαλύτερο αριθμό ΜΜΕ από ερευνητικά έργα,Regions with greater research and institutional capacity benefit more SMEs through research projects.
+EE9,H2,Περιφέρειες με υψηλότερα επίπεδα επιχειρηματικής καινοτομίας εμφανίζουν μεγαλύτερη ωφέλεια ΜΜΕ,Regions with higher business innovation exhibit greater SME benefit.
