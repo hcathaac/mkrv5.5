@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v5.5.0.
+"""Makryvelios Research Analytics & Econometrics Workbench v5.5.2.
 
 Run locally:  streamlit run app.py
 """
@@ -88,6 +88,9 @@ section[data-testid="stSidebar"]{background:linear-gradient(180deg,#0e2133 0%,#1
 [data-testid="stFileUploaderDropzone"]{background:linear-gradient(135deg,#173f54,#123449)!important;border:1.5px dashed #26cddd!important;border-radius:12px!important;color:#eafcff!important;min-height:116px}
 [data-testid="stFileUploaderDropzone"] button,[data-testid="stFileUploader"] button{background:linear-gradient(110deg,#0b8298,#19b7c2)!important;color:#ffffff!important;border:1px solid #65f3ff!important;border-radius:9px!important;font-weight:800!important;box-shadow:0 0 18px #20d5e63b!important}
 [data-testid="stFileUploaderDropzone"] small,[data-testid="stFileUploaderDropzoneInstructions"]{color:#a9c5d0!important}
+/* Uploaded-file cards are light: filenames and sizes must be genuinely dark. */
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"]{background:#f4f7fa!important;border:1px solid #d3dce5!important;border-radius:10px!important;color:#101820!important;-webkit-text-fill-color:#101820!important}
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] *,section[data-testid="stSidebar"] [data-testid="stFileUploaderFileName"],section[data-testid="stSidebar"] [data-testid="stFileUploaderFileName"] *,section[data-testid="stSidebar"] [data-testid="stFileUploaderFileData"],section[data-testid="stSidebar"] [data-testid="stFileUploaderFileData"] *{color:#101820!important;-webkit-text-fill-color:#101820!important;opacity:1!important}
 /* Typed and selected text on every light input surface: force true black. */
 .stApp input,.stApp textarea,.stApp [contenteditable="true"],.stTextInput input,.stTextArea textarea,[data-baseweb="input"] input,[data-baseweb="textarea"] textarea{color:#000000!important;-webkit-text-fill-color:#000000!important;caret-color:#000000!important;color-scheme:light!important}
 .stApp input::placeholder,.stApp textarea::placeholder,.stTextInput input::placeholder,.stTextArea textarea::placeholder{color:#59616d!important;-webkit-text-fill-color:#59616d!important;opacity:1!important}
@@ -106,7 +109,7 @@ h1,h2,h3{letter-spacing:-.018em;color:#effcff}h2{border-bottom:1px solid #173849
 code{color:#7df3ff;background:#14384a!important}.stCaptionContainer{color:#94aab6}
 @media(max-width:760px){.hero{padding:1.25rem}.hero h1{font-size:1.55rem}.block-container{padding-left:.8rem;padding-right:.8rem}}
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.5.0 · ALL v5.4.0 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.5.2 · ALL v5.5.0 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">All-dataset column merge</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -238,15 +241,52 @@ with st.sidebar:
             st.caption("Bundled R&D reference workbook loaded. Uploading files replaces it for this session.")
 
     if frames:
-        mode = st.selectbox("Dataset relationship", ["Keep datasets separate", "Append rows (union by column name)", "Join datasets on key(s)"])
-        selected_label = st.selectbox("Active dataset", list(frames))
-        common = sorted(set.intersection(*(set(d.columns) for d in frames.values()))) if len(frames) > 1 else list(next(iter(frames.values())).columns)
+        relationship_options = [
+            "Keep datasets separate",
+            "Combine columns side-by-side (by row order)",
+            "Append rows (union by column name)",
+            "Join datasets on key(s)",
+        ]
+        mode = st.selectbox(
+            "Dataset relationship",
+            relationship_options,
+            help="Choose whether to analyse one source, place all selected source columns side-by-side, append observations, or join sources by verified keys.",
+        )
+        if mode == "Keep datasets separate":
+            selected_label = st.selectbox("Active dataset", list(frames))
+            selected_frames = {selected_label: frames[selected_label]}
+        else:
+            selected_datasets = st.multiselect(
+                "Datasets to combine",
+                list(frames),
+                default=list(frames),
+                help="All uploaded files/sheets are selected by default. Remove only sources that should not enter the combined analytical dataset.",
+            )
+            selected_frames = {label: frames[label] for label in selected_datasets}
+            selected_label = f"{mode}: {len(selected_frames)} dataset(s)"
+            if not selected_frames:
+                st.warning("Select at least one dataset to continue.")
+
+        common = sorted(set.intersection(*(set(d.columns) for d in selected_frames.values()))) if len(selected_frames) > 1 else (list(next(iter(selected_frames.values())).columns) if selected_frames else [])
         join_keys = st.multiselect("Join key(s)", common) if mode == "Join datasets on key(s)" else []
         join_how = st.selectbox("Join type", ["outer", "left", "inner", "right"]) if join_keys else "outer"
+        if mode == "Combine columns side-by-side (by row order)" and selected_frames:
+            row_counts = {label: len(frame) for label, frame in selected_frames.items()}
+            st.info("All columns from the selected datasets will be available together in every analytical module.")
+            st.caption("Row-order rule: row 1 is aligned with row 1, row 2 with row 2, and so forth. Use this only when every source has the same observational order.")
+            if len(set(row_counts.values())) > 1:
+                counts_text = "; ".join(f"{label}: {count:,}" for label, count in row_counts.items())
+                st.warning(f"The selected datasets have unequal row counts. Shorter datasets will contain missing cells after alignment. {counts_text}")
         try:
-            df = frames[selected_label] if mode == "Keep datasets separate" else combine_frames(frames, mode, join_keys, join_how)
+            if not selected_frames:
+                df = pd.DataFrame()
+            else:
+                df = frames[selected_label] if mode == "Keep datasets separate" else combine_frames(selected_frames, mode, join_keys, join_how)
         except Exception as exc:
-            st.error(str(exc)); df = frames[selected_label]
+            st.error(str(exc))
+            fallback_label = next(iter(frames))
+            selected_label = fallback_label
+            df = frames[fallback_label]
     else:
         selected_label = "No dataset"
         df = pd.DataFrame()
@@ -1751,7 +1791,7 @@ elif page == "13. Methods & reproducibility":
     module_guide("Document the analytical coverage, implementation choices and reproducibility route.", "Use the catalogue to identify an estimator, then retain the exported data, model configuration, seed and software version with the manuscript.", "Reproducibility requires the exact data version and transformations, not only the estimator name.")
     st.subheader("Implemented analytical families")
     methods = {
-        "Data engineering": "Simultaneous CSV/XLS/XLSX/TSV ingestion; all-sheet reading; append, join, source lineage; embedded-header repair; data dictionary; missingness and duplicate checks.",
+        "Data engineering": "Simultaneous CSV/XLS/XLSX/TSV ingestion; all-sheet reading; separate analysis, side-by-side column alignment, row append, keyed join and source lineage; embedded-header repair; data dictionary; missingness and duplicate checks.",
         "Descriptive": "Mean, standard error, dispersion, quantiles, skewness, kurtosis, CV, frequency tables; Pearson/Spearman/Kendall correlations with p-values.",
         "Tests": "Welch t, Mann–Whitney, one-way ANOVA, Kruskal–Wallis, Levene, chi-square/Cramér's V, Shapiro–Wilk, D'Agostino K² and Anderson–Darling.",
         "Econometrics": "OLS/WLS, Huber robust regression; HC0–HC3, HAC and clustered covariance; logit, probit, Poisson, negative-binomial, fractional logit, Gamma log-link and quantile regression; fixed effects; IV/2SLS; difference-in-differences; Ridge/Lasso/Elastic Net; VIF, BP/White, RESET, DW, JB and Cook's D.",
@@ -1778,8 +1818,8 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends uploaded datasets to a paid or external analytics API. The optional Ollama enhancement uses only a locally running endpoint. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.5.0 documentation library")
-    st.info("The retained v5.2.1 consolidated report covers the original eighteen modules. The Research Command Chair guide documents the additive nineteenth module, free/offline operation, PDF evidence, safe equations and paper bundles.")
+    st.subheader("Version 5.5.2 documentation library")
+    st.info("The v5.5.0 technical report remains the complete architectural reference. The v5.5.1 data-combination guide documents the additive all-dataset, side-by-side column workflow retained in v5.5.2.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
@@ -1790,6 +1830,7 @@ elif page == "13. Methods & reproducibility":
         ("Validation and QA", "VALIDATION_AND_QA.md", "text/markdown"),
         ("Requirements coverage", "REQUIREMENTS_COVERAGE.md", "text/markdown"),
         ("Research Command Chair guide", "RESEARCH_COMMAND_CHAIR_GUIDE.md", "text/markdown"),
+        ("All-dataset column-combination guide", "DATA_COMBINATION_GUIDE_v5_5_1.md", "text/markdown"),
     ]
     available_docs = [(label, BASE / "documentation" / filename, mime) for label, filename, mime in documentation_files if (BASE / "documentation" / filename).exists()]
     for row_start in range(0, len(available_docs), 2):

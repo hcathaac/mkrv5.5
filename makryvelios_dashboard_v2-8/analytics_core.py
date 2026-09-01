@@ -128,9 +128,36 @@ def combine_frames(
     join_keys: Sequence[str] | None = None,
     join_how: str = "outer",
 ) -> pd.DataFrame:
-    """Append rows, merge on keys, or retain one selected dataset."""
+    """Append rows, merge on keys, align columns by row order, or retain one dataset.
+
+    Side-by-side alignment is deliberately explicit because it does not infer a
+    relational key. Row 1 in each source is treated as the same observational
+    unit, row 2 as the same unit, and so on. Unequal source lengths are retained
+    through an outer index alignment and therefore create missing cells.
+    """
     if not frames:
         return pd.DataFrame()
+    if mode == "Combine columns side-by-side (by row order)":
+        aligned: list[pd.DataFrame] = []
+        used: set[str] = {"__row_position__"}
+        for dataset_number, (_, frame) in enumerate(frames.items(), start=1):
+            d = frame.copy().reset_index(drop=True)
+            renamed: dict[str, str] = {}
+            for column in d.columns:
+                base = str(column)
+                candidate = base
+                if candidate in used:
+                    candidate = f"{base}__d{dataset_number}"
+                    duplicate_number = 2
+                    while candidate in used:
+                        candidate = f"{base}__d{dataset_number}_{duplicate_number}"
+                        duplicate_number += 1
+                renamed[column] = candidate
+                used.add(candidate)
+            aligned.append(d.rename(columns=renamed))
+        result = pd.concat(aligned, axis=1, join="outer")
+        result.insert(0, "__row_position__", np.arange(1, len(result) + 1))
+        return result
     clean = []
     for label, frame in frames.items():
         d = frame.copy()
