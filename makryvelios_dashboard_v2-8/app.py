@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v5.5.2.
+"""Makryvelios Research Analytics & Econometrics Workbench v5.5.3.
 
 Run locally:  streamlit run app.py
 """
@@ -28,7 +28,7 @@ from analytics_core import (
     time_series_tests, to_excel_bytes, vif_table, regularised_regression,
     instrumental_variables_2sls, difference_in_differences, granger_table,
     arima_forecast, cronbach_alpha, monte_carlo_ols, monte_carlo_portfolio,
-    outlier_summary,
+    outlier_summary, is_likely_analytical_frame,
 )
 from legacy_rd import build_region_year_panel, is_rd_dataset, original_model_presets, rd_column_blocks
 from mapping import (
@@ -109,7 +109,7 @@ h1,h2,h3{letter-spacing:-.018em;color:#effcff}h2{border-bottom:1px solid #173849
 code{color:#7df3ff;background:#14384a!important}.stCaptionContainer{color:#94aab6}
 @media(max-width:760px){.hero{padding:1.25rem}.hero h1{font-size:1.55rem}.block-container{padding-left:.8rem;padding-right:.8rem}}
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.5.2 · ALL v5.5.0 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">All-dataset column merge</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.5.3 · ALL v5.5.0 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -256,14 +256,18 @@ with st.sidebar:
             selected_label = st.selectbox("Active dataset", list(frames))
             selected_frames = {selected_label: frames[selected_label]}
         else:
+            analytical_defaults = [label for label, frame in frames.items() if is_likely_analytical_frame(label, frame)]
+            documentation_labels = [label for label in frames if label not in analytical_defaults]
             selected_datasets = st.multiselect(
                 "Datasets to combine",
                 list(frames),
-                default=list(frames),
-                help="All uploaded files/sheets are selected by default. Remove only sources that should not enter the combined analytical dataset.",
+                default=analytical_defaults or list(frames),
+                help="Probable observation tables are selected automatically. README, dictionary, codebook, crosswalk, metadata and processing sheets remain available but are excluded by default.",
             )
             selected_frames = {label: frames[label] for label in selected_datasets}
             selected_label = f"{mode}: {len(selected_frames)} dataset(s)"
+            if documentation_labels:
+                st.caption(f"Automatically excluded {len(documentation_labels)} documentation/lookup sheet(s). They remain available in the selector if genuinely required.")
             if not selected_frames:
                 st.warning("Select at least one dataset to continue.")
 
@@ -275,8 +279,11 @@ with st.sidebar:
             st.info("All columns from the selected datasets will be available together in every analytical module.")
             st.caption("Row-order rule: row 1 is aligned with row 1, row 2 with row 2, and so forth. Use this only when every source has the same observational order.")
             if len(set(row_counts.values())) > 1:
-                counts_text = "; ".join(f"{label}: {count:,}" for label, count in row_counts.items())
-                st.warning(f"The selected datasets have unequal row counts. Shorter datasets will contain missing cells after alignment. {counts_text}")
+                st.warning("The selected analytical tables have unequal row counts. They must not be interpreted as matched observations unless row identity and ordering have been independently verified.")
+                with st.expander("Show row counts and alignment details", expanded=False):
+                    count_table = pd.DataFrame({"dataset": list(row_counts), "rows": list(row_counts.values())}).sort_values("rows", ascending=False)
+                    st.dataframe(count_table, hide_index=True, width="stretch")
+                    st.caption("Shorter tables receive missing cells after positional alignment. Prefer separate analyses or a verified-key/aggregate join when units differ.")
         try:
             if not selected_frames:
                 df = pd.DataFrame()
@@ -1818,8 +1825,8 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends uploaded datasets to a paid or external analytics API. The optional Ollama enhancement uses only a locally running endpoint. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.5.2 documentation library")
-    st.info("The v5.5.0 technical report remains the complete architectural reference. The v5.5.1 data-combination guide documents the additive all-dataset, side-by-side column workflow retained in v5.5.2.")
+    st.subheader("Version 5.5.3 documentation library")
+    st.info("The v5.5.0 technical report remains the complete architectural reference. The data-combination guide documents the side-by-side workflow; v5.5.3 adds analytical-sheet detection and a no-key interactive basemap.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),

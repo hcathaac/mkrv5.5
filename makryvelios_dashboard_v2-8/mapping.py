@@ -117,7 +117,7 @@ def choropleth_figure(data: pd.DataFrame, geojson: dict, metric: str, monochrome
         data, geojson=geojson, locations="nuts_id", featureidkey="properties.NUTS_ID",
         color=metric, hover_name="region_el" if "region_el" in data else "nuts_id",
         hover_data={metric: ":,.3f", "nuts_id": True}, color_continuous_scale=scale,
-        mapbox_style="carto-positron", center={"lat": 38.6, "lon": 23.5}, zoom=5.1,
+        mapbox_style="open-street-map", center={"lat": 38.6, "lon": 23.5}, zoom=5.1,
         opacity=.83, height=760,
     )
     fig.update_layout(margin=dict(l=0, r=0, t=45, b=0), title=f"Greece: {metric}", font=dict(family="Arial", size=13))

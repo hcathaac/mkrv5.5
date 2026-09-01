@@ -30,6 +30,20 @@ import statsmodels.api as sm
 MAX_DEPENDENT = 1000
 MAX_INDEPENDENT = 1000
 
+DOCUMENTATION_SHEET_TOKENS = (
+    "readme", "read_me", "read me", "data_dictionary", "data dictionary",
+    "dictionary", "codebook", "questionnaire_mapping", "questionnaire mapping",
+    "crosswalk", "quality_control", "quality control", "metadata",
+    "processing_log", "processing log", "maturity_code", "maturity code",
+    "record_status", "record status",
+)
+
+
+def is_likely_analytical_frame(label: str, frame: pd.DataFrame) -> bool:
+    """Separate probable observation tables from workbook documentation sheets."""
+    folded = re.sub(r"\s+", " ", str(label).casefold().replace("-", "_")).strip()
+    return not frame.empty and not any(token in folded for token in DOCUMENTATION_SHEET_TOKENS)
+
 
 def safe_result_metric(result: Any, name: str) -> float:
     """Read an estimator metric without triggering unsupported cached properties."""

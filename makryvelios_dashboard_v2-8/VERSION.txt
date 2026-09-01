@@ -1,7 +1,7 @@
 Makryvelios Research Analytics & Econometrics Workbench
-Version: 5.5.2
+Version: 5.5.3
 Release date: 2026-09-01
 Compatibility folder: makryvelios_dashboard_v2
 Streamlit entry point: makryvelios_dashboard_v2/app.py
 Documentation: complete DOCX/PDF and focused guides under makryvelios_dashboard_v2/documentation/
-Release note: retains all-dataset side-by-side column combination and corrects uploaded filename/size contrast on light file cards; every v5.5.0 capability remains available.
+Release note: automatically excludes documentation/lookup sheets from multi-dataset defaults, condenses unequal-row diagnostics, and replaces the CARTO key-gated map with a no-key OpenStreetMap basemap; every v5.5.0 capability remains available.
