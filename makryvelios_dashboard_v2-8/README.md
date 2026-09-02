@@ -1,8 +1,16 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.5.0
+# Makryvelios Research Analytics & Econometrics Command Centre v5.6.1
 
 This is a complete replacement package for the existing Streamlit app. It retains the original R&D data audit, variable dictionary, project/regional modelling, region-year panel, Greece GIS, spatial diagnostics and scenario functions, and adds schema-agnostic multi-file analysis.
 
+Version 5.6.1 retains the complete v5.6.0 ITA upgrade and adds a separate **12A.2 Expert respondent analytics** module. It analyses complete respondent-level preference distributions, agreement, dependence, latent structure, exploratory preference segments and subgroup heterogeneity, then passes the validated empirical weight vectors directly to Hybrid ITA-RW. Every v5.5.3 capability remains available.
+
+The respondent module is schema-agnostic and therefore operational before the two papers arrive. It does not assume their findings: the exact respondent identifier, C1-Cn fields and optional subgroup variables are mapped at run time. The resulting empirical distribution can be activated for Hybrid ITA-RW immediately, while the papers' final confirmatory models and interpretations can later be reproduced without rebuilding the interface.
+
 ## Documentation library
+
+Version 5.6.1 adds `EXPERT_RESPONDENT_ANALYTICS_GUIDE_v5_6_1.md`, including the data contract, descriptive and inferential outputs, compositional caveats, preference segmentation and empirical ITA bridge.
+
+Version 5.6.0 adds `ITA_DECISION_SUPPORT_GUIDE_v5_6_0.md`, covering data mapping, both ITA variants, colour semantics, round/scenario visualisation, maps/spatial diagnostics, GAMS replication and the planned expert-distribution connection.
 
 Version 5.5.0 retains every v5.4.0 capability and adds a one-screen Guided Chat Autopilot, editable selected/all-question batches, explicit feasibility verdicts, genuine paper-ready prose answers, and Research Chair figures in standalone interactive HTML plus colour/black-and-white 600-dpi PNG and vector SVG/PDF.
 
@@ -116,8 +124,9 @@ The package may include the original 3,259-row R&D workbook in `data/`. It loads
 For the Antonis Tritsis dataset, upload the workbook or CSV and select the sheet containing the project-level table. Choose:
 
 1. **Keep datasets separate** to analyse one workbook/sheet at a time.
-2. **Append rows** when files have the same or overlapping columns.
-3. **Join datasets on key(s)** when R&D and Antonis Tritsis tables or external denominators must be linked by a stable key such as NUTS code, region and/or year.
+2. **Combine columns side-by-side (by row order)** when files contain the same ordered observations but different variables. All sources are selected by default and every resulting column becomes available to the menus.
+3. **Append rows** when files have the same or overlapping columns.
+4. **Join datasets on key(s)** when R&D and Antonis Tritsis tables or external denominators must be linked by a stable key such as NUTS code, region and/or year.
 
 Do not join merely on region names if rows have a finer grain. Verify grain and uniqueness first in **Data hub & audit**.
 
@@ -157,6 +166,10 @@ install.packages(c("jsonlite", "sandwich", "lmtest", "MASS"))
 - `analytics_core.py` — ingestion, statistics, hypothesis tests, econometrics, batch engine and exports.
 - `advanced_analytics.py` — validated clustering, panel-model comparison and cross-validated predictive analytics.
 - `mcda.py` — dedicated multi-criteria ranking, weighting, robustness analysis and publication bundles.
+- `ita.py` — ITA-PB and Hybrid ITA-RW engines, exact MILP optimisation, uncertainty rounds, scorecards and GAMS-ready reproducibility exports.
+- `ita_ui.py` — self-contained ITA mapping, scenario, visual decision-support, spatial and export interface.
+- `respondent.py` — respondent-level preference statistics, consensus, PCA, segmentation, subgroup testing and reproducibility export.
+- `respondent_ui.py` — expert-data mapping, visual analytics and empirical Hybrid ITA-RW bridge.
 - `legacy_rd.py` — compatibility with the original 83-variable R&D workbook and EE1–EE9 region-year panel.
 - `mapping.py` — Greece GIS, official boundaries, Moran/LISA diagnostics and static map exports.
 - `visuals.py` — interactive and publication-quality colour/black-and-white figures.
@@ -185,4 +198,4 @@ install.packages(c("jsonlite", "sandwich", "lmtest", "MASS"))
 
 ## Updating the GitHub/Streamlit deployment
 
-This ZIP retains the folder name `makryvelios_dashboard_v2` for compatibility, but the software inside is version 5.5.0. Replace the old repository folder with the new one and keep the Streamlit main-file path as `makryvelios_dashboard_v2/app.py`. Streamlit rebuilds automatically after the GitHub commit.
+This ZIP retains the folder name `makryvelios_dashboard_v2` for compatibility, but the software inside is version 5.6.1. Replace the files inside the actual deployed repository folder and retain its existing Streamlit entrypoint path. Streamlit rebuilds automatically after the GitHub commit.

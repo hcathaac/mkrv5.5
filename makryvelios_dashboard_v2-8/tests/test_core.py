@@ -12,12 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from analytics_core import (
-    correlation_matrix, descriptive_statistics, fit_detailed_model,
+    combine_frames, correlation_matrix, descriptive_statistics, fit_detailed_model,
     matrix_ols_many_outcomes, promote_embedded_header, quality_summary,
     tidy_frame, to_excel_bytes, regularised_regression,
     instrumental_variables_2sls, difference_in_differences, cronbach_alpha,
     monte_carlo_ols, monte_carlo_portfolio,
-    outlier_summary,
+    outlier_summary, is_likely_analytical_frame,
 )
 from legacy_rd import build_region_year_panel, is_rd_dataset
 from mapping import match_nuts2, moran_diagnostics, REGIONS
@@ -28,6 +28,12 @@ from visuals import (
 )
 from advanced_analytics import advanced_clustering, predictive_model_comparison, panel_model_suite
 from mcda import ahp_weights, mcda_analysis, mcda_publication_bundle
+from ita import (
+    BENEFICIARY_CATEGORY_CAPS, converging_weight_sets, gams_model_text,
+    ita_export_bundle, prepare_ita_projects, run_hybrid_ita, run_policy_ita,
+    solve_portfolio,
+)
+from respondent import analyse_respondents, respondent_export_bundle
 from research_chair import (
     add_safe_derived_column, apply_scope, build_offline_reply,
     build_paper_blueprint, execute_protocol, execute_natural_language_command, research_bundle,
@@ -47,12 +53,139 @@ def synthetic(n: int = 250) -> pd.DataFrame:
     return pd.DataFrame({"y": y, "y2": y * .5 + rng.normal(size=n), "x1": x1, "x2": x2, "count": count, "group": group})
 
 
+def synthetic_ita_projects() -> tuple[pd.DataFrame, pd.DataFrame]:
+    raw = pd.DataFrame({
+        "project": ["A", "B", "C", "D", "E", "F"],
+        "call": ["AT01", "AT01", "AT01", "AT02", "AT02", "AT02"],
+        "beneficiary": ["North", "North", "South", "Island", "Mainland", "Mainland"],
+        "region": ["R1", "R1", "R2", "R3", "R4", "R4"],
+        "category": ["M6", "M6", "M5", "M6", "M5", "M5"],
+        "budget": [35.0, 45.0, 55.0, 40.0, 50.0, 65.0],
+        "c1": [9.0, 8.0, 3.0, 10.0, 4.0, 2.0],
+        "c2": [8.0, 7.0, 10.0, 7.0, 9.0, 6.0],
+        "c3": [8.0, 6.0, 9.0, 7.0, 8.0, 5.0],
+        "c4": [7.0, 8.0, 9.0, 6.0, 8.0, 5.0],
+        "c5": [8.0, 7.0, 9.0, 7.0, 8.0, 4.0],
+        "c6": [6.0, 7.0, 8.0, 9.0, 6.0, 3.0],
+        "eligible": [1, 1, 1, 1, 1, 1],
+    })
+    prepared, criteria = prepare_ita_projects(
+        raw, project_id="project", call="call", beneficiary="beneficiary", region="region",
+        requested_budget="budget", criteria=["c1", "c2", "c3", "c4", "c5", "c6"],
+        weights=[.25, .20, .20, .15, .15, .05], eligibility_columns=["eligible"],
+        beneficiary_category="category", disadvantaged_c1_threshold=7,
+    )
+    return prepared, criteria
+
+
+def test_converging_weights_match_published_example():
+    expected_round_2 = np.array([[.6, .15, .25], [.1, .65, .25], [.1, .15, .75]])
+    np.testing.assert_allclose(converging_weight_sets([.2, .3, .5], 1, 3), np.eye(3))
+    np.testing.assert_allclose(converging_weight_sets([.2, .3, .5], 2, 3), expected_round_2)
+    np.testing.assert_allclose(converging_weight_sets([.2, .3, .5], 3, 3), np.tile([.2, .3, .5], (3, 1)))
+
+
+def test_respondent_analysis_preserves_vectors_and_builds_empirical_bridge():
+    rng = np.random.default_rng(91)
+    n = 72
+    frame = pd.DataFrame({
+        "respondent": [f"E{i:03}" for i in range(n)],
+        "profession": np.resize(["Academic", "Public authority", "Consultant"], n),
+        **{f"w{i}": rng.uniform(1, 10, n) for i in range(1, 7)},
+    })
+    output = analyse_respondents(
+        frame, respondent_id="respondent", weight_columns=[f"w{i}" for i in range(1, 7)],
+        group_column="profession", seed=17,
+    )
+    assert len(output.respondents) == n
+    np.testing.assert_allclose(output.normalised_weights.sum(axis=1), 1.0)
+    assert 0 <= output.kendall_w <= 1
+    assert {"p_adjusted_bh", "epsilon_squared"}.issubset(output.subgroup_tests.columns)
+    assert not output.cluster_profiles.empty
+    package = respondent_export_bundle(output)
+    with zipfile.ZipFile(io.BytesIO(package)) as archive:
+        assert {"normalised_empirical_weights.csv", "ita_empirical_weight_profile.json"}.issubset(archive.namelist())
+
+    projects, criteria = synthetic_ita_projects()
+    hybrid = run_hybrid_ita(
+        projects, criterion_weights=criteria.weight, call_budgets={"AT01": 100.0, "AT02": 100.0},
+        rounds=3, simulations=10, score_uncertainty=.5, seed=17,
+        empirical_weight_vectors=output.normalised_weights.to_numpy(float),
+    )
+    assert hybrid.settings["weight_scenario_source"] == "empirical_respondent_distribution"
+    assert hybrid.settings["empirical_respondents"] == n
+    assert set(hybrid.projects.decision) <= {"Green", "Red"}
+
+
+def test_ita_milp_respects_call_beneficiary_and_equity_constraints():
+    projects, _ = synthetic_ita_projects()
+    caps = {"North": 45.0, "South": 55.0, "Island": 40.0, "Mainland": 65.0}
+    selected, meta = solve_portfolio(
+        projects, projects.final_score, call_budgets={"AT01": 90.0, "AT02": 90.0},
+        beneficiary_caps=caps, equity_floor=.35,
+    )
+    chosen = projects.assign(selected=selected).query("selected == 1")
+    assert chosen.groupby("call").requested_budget.sum().le(pd.Series({"AT01": 90.0, "AT02": 90.0})).all()
+    assert chosen.groupby("beneficiary").requested_budget.sum().le(pd.Series(caps)).all()
+    disadvantaged_share = chosen.loc[chosen.disadvantaged, "requested_budget"].sum() / chosen.requested_budget.sum()
+    assert disadvantaged_share >= .35 - 1e-8
+    assert meta["solver"] == "SciPy HiGHS MILP"
+
+
+def test_policy_and_hybrid_ita_are_reproducible_and_exportable():
+    projects, criteria = synthetic_ita_projects()
+    call_budgets = {"AT01": 90.0, "AT02": 90.0}
+    small_caps = {**BENEFICIARY_CATEGORY_CAPS, "M5": 65.0, "M6": 45.0}
+    policy = run_policy_ita(projects, call_budgets=call_budgets, beneficiary_category_caps=small_caps, policy_strength=.3, equity_floor=.3)
+    assert len(policy.rounds) == 4
+    assert set(policy.projects.policy_classification).issubset({"Policy-robust green", "Policy-robust red", "Equity-sensitive gain", "Equity-sensitive loss", "Policy-conflict zone"})
+    kwargs = dict(
+        criterion_weights=criteria.weight, call_budgets=call_budgets,
+        beneficiary_category_caps=small_caps, rounds=3, simulations=20,
+        score_uncertainty=.8, final_gray_budget_factor=.85,
+        green_threshold=.9, red_threshold=.1, equity_floor=.2, seed=77,
+    )
+    first = run_hybrid_ita(projects, **kwargs)
+    second = run_hybrid_ita(projects, **kwargs)
+    pd.testing.assert_frame_equal(first.projects, second.projects)
+    pd.testing.assert_frame_equal(first.inclusion_history, second.inclusion_history)
+    assert first.rounds.remaining_gray.iloc[-1] == 0
+    assert first.projects.assigned_budget_factor.between(.85, 1).all()
+    assert "Solve ITA using MIP" in gams_model_text(first)
+    bundle = ita_export_bundle(first)
+    assert bundle[:2] == b"PK"
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        assert {"projects.csv", "ita_final_model.gms", "settings.json", "project_scorecards.csv"}.issubset(archive.namelist())
+
+
 def test_embedded_header_promotion():
     raw = pd.DataFrame([["Project", "Region", "Budget"], [1, "Attica", 10], [2, "Crete", 20]], columns=[1, 2, 3])
     out = tidy_frame(raw, normalise_columns=True)
     assert list(out.columns) == ["Project", "Region", "Budget"]
     assert len(out) == 2
     assert pd.api.types.is_numeric_dtype(out["Budget"])
+
+
+def test_side_by_side_dataset_combination_retains_all_columns_and_rows():
+    first = pd.DataFrame({"id": [1, 2, 3], "budget": [10, 20, 30]})
+    second = pd.DataFrame({"id": [101, 102], "score": [.4, .8]})
+    out = combine_frames(
+        {"projects.xlsx :: Sheet1": first, "scores.xlsx :: Sheet1": second},
+        "Combine columns side-by-side (by row order)",
+    )
+    assert list(out.columns) == ["__row_position__", "id", "budget", "id__d2", "score"]
+    assert out["__row_position__"].tolist() == [1, 2, 3]
+    assert out.loc[0, "id"] == 1 and out.loc[0, "id__d2"] == 101
+    assert pd.isna(out.loc[2, "score"])
+
+
+def test_documentation_sheets_are_not_default_analytical_frames():
+    table = pd.DataFrame({"value": [1, 2, 3]})
+    assert is_likely_analytical_frame("book.xlsx :: RES_Project_Level_Master", table)
+    assert is_likely_analytical_frame("survey.xlsx :: Data_Curated", table)
+    assert not is_likely_analytical_frame("book.xlsx :: Read me", table)
+    assert not is_likely_analytical_frame("book.xlsx :: Data Dictionary", table)
+    assert not is_likely_analytical_frame("book.xlsx :: Technology Crosswalk", table)
 
 
 def test_descriptives_and_correlations():

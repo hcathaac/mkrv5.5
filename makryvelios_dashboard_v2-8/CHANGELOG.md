@@ -1,5 +1,49 @@
 # Changelog
 
+## Version 5.6.1 — September 2026
+
+- Added a separate `12A.2 Expert respondent analytics` module without changing the retained v5.6.0 or v5.5.3 workflows.
+- Added schema-agnostic mapping of respondent ID, ordered C1-Cn preference fields and an optional demographic/professional subgroup.
+- Added complete-case or explicit median-imputation handling, invalid/negative-vector checks, duplicate-ID diagnostics and preservation of raw responses.
+- Added respondent-level relative-weight distributions, non-parametric bootstrap mean intervals, Kendall's W concordance and Spearman dependence matrices.
+- Added PCA structure, automatically selected K-means preference segments with silhouette diagnostics, respondent heatmaps and segment profiles.
+- Added Kruskal-Wallis subgroup comparisons with Benjamini-Hochberg multiplicity control and epsilon-squared effect sizes.
+- Added a one-click empirical weight bridge: Hybrid ITA-RW samples complete respondent vectors and progressively contracts them towards the empirical centre across rounds.
+- Added complete XLSX/CSV/JSON respondent evidence exports. The exact confirmatory specifications remain to be reconciled with the two forthcoming papers rather than inferred in advance.
+
+## Version 5.6.0 — September 2026
+
+- Added a separate `12A.1 ITA / public-funding decision support` module while retaining every v5.5.3 module and workflow.
+- Added ITA-PB rounds for pure-score allocation, C1 policy priority, an equity floor and full optimisation with call envelopes and beneficiary-category caps.
+- Added Hybrid ITA-RW with simultaneous score and converging-weight uncertainty, reproducible Monte Carlo scenarios, Green/Gray/Red thresholds, frozen decisions and final gray-budget adjustment.
+- Added exact SciPy/HiGHS binary portfolio optimisation and independent GAMS model/data export with project crosswalks and complete settings.
+- Added modern project-by-round outcome matrices, Green/Gray/Red decision-flow infographics, score-versus-weight uncertainty bubbles and funding-envelope utilisation charts.
+- Added regional allocation maps using the retained no-key Greek NUTS-2 boundaries, plus exploratory global/local Moran spatial diagnostics.
+- Added per-project scorecards, regional and beneficiary profiles, observed/conventional/ITA comparisons and combined XLSX evidence export.
+- Reserved the existing Hybrid ITA-RW sampling interface for later connection to validated respondent-level empirical distributions from the two expert papers; no unobserved distribution is inferred in this release.
+
+## Version 5.5.3 — September 2026
+
+- Added automatic workbook-sheet classification so README, dictionary, codebook, crosswalk, metadata, status-code and processing-log sheets are excluded from combination defaults while remaining manually selectable.
+- Replaced the oversized unequal-row alert with a concise scientific warning and an expandable row-count table.
+- Replaced the CARTO key-gated interactive basemap with OpenStreetMap, which requires no user API key.
+- Retained v5.5.2 filename contrast, v5.5.1 column combination and all earlier analytical capabilities.
+
+## Version 5.5.2 — September 2026
+
+- Corrected uploaded filename and file-size contrast on Streamlit's light upload cards.
+- Retained the v5.5.1 all-dataset selector and side-by-side column-combination workflow without analytical changes.
+- Added an unmistakable v5.5.2 build marker so a stale v5.5.0 deployment can be identified immediately.
+
+## Version 5.5.1 — September 2026
+
+- Added `Combine columns side-by-side (by row order)` to the data intake console for datasets that describe the same ordered observations but hold different variables.
+- Replaced the misleading single active-dataset selector in combination modes with a multi-dataset selector; all uploaded files and sheets are selected by default.
+- Exposed the complete combined column set to every existing analytical module, including the Research Command Chair.
+- Preserved duplicate column names using deterministic `__d2`, `__d3`, and subsequent source-order suffixes.
+- Added an auditable one-based `__row_position__` field and explicit warnings for unequal source row counts.
+- Retained separate-dataset, append-by-row, keyed-join and every v5.5.0 analytical/export capability.
+
 ## Version 5.5.0 — August 2026
 
 - Added a one-screen Guided Chat Autopilot as the first Research Chair surface while retaining the complete original menu and advanced five-step workflow.

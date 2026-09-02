@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v5.5.3.
+"""Makryvelios Research Analytics & Econometrics Workbench v5.6.1.
 
 Run locally:  streamlit run app.py
 """
@@ -38,6 +38,8 @@ from mapping import (
 from reporting import build_html_report
 from advanced_analytics import advanced_clustering, panel_model_suite, predictive_model_comparison
 from mcda import METHODS as MCDA_METHODS, WEIGHT_METHODS, mcda_analysis, mcda_publication_bundle
+from ita_ui import render_ita_module
+from respondent_ui import render_respondent_module
 from visuals import (
     interactive_figure, publication_bundle, ols_publication_bundle,
     monte_carlo_publication_bundle, clustering_publication_bundle,
@@ -109,7 +111,7 @@ h1,h2,h3{letter-spacing:-.018em;color:#effcff}h2{border-bottom:1px solid #173849
 code{color:#7df3ff;background:#14384a!important}.stCaptionContainer{color:#94aab6}
 @media(max-width:760px){.hero{padding:1.25rem}.hero h1{font-size:1.55rem}.block-container{padding-left:.8rem;padding-right:.8rem}}
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.5.3 · ALL v5.5.0 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.6.1 · ALL v5.5.3 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">GAMS-ready export</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -309,6 +311,8 @@ with st.sidebar:
         "10A. Advanced clustering & segmentation", "10B. Predictive model laboratory",
         "11. Publication figures & HTML report", "12. Scenario & allocation engine",
         "12A. Dedicated MCDA engine",
+        "12A.1 ITA / public-funding decision support",
+        "12A.2 Expert respondent analytics",
         "12B. Research Command Chair",
         "13. Methods & reproducibility",
     ]
@@ -1280,6 +1284,14 @@ elif page == "12A. Dedicated MCDA engine":
             st.download_button("Download MCDA publication bundle", mcda_publication_bundle(mcda_out), "mcda_publication_bundle.zip", "application/zip")
 
 
+elif page == "12A.1 ITA / public-funding decision support":
+    render_ita_module(df)
+
+
+elif page == "12A.2 Expert respondent analytics":
+    render_respondent_module(df, selected_label)
+
+
 elif page == "12B. Research Command Chair":
     st.subheader("Research Command Chair — free/offline evidence and protocol assistant")
     module_guide(
@@ -1810,6 +1822,8 @@ elif page == "13. Methods & reproducibility":
         "Predictive validation": "Cross-validated OLS, Ridge, Lasso, Elastic Net, random forest, extra trees and gradient boosting; out-of-fold RMSE/MAE/R², predictions and permutation importance.",
         "Decision support": "Econometric shock approximation and constrained linear-programming allocation.",
         "Multi-criteria decision analysis": "MAVT, TOPSIS and PROMETHEE II rankings; equal, user-defined, Entropy, CRITIC and AHP pairwise weights; AHP consistency; one-at-a-time weight sensitivity; Monte Carlo rank acceptability and method-agreement diagnostics.",
+        "Iterative Trichotomic Approach": "Eligibility gates; C1-C6 weighted scoring; ranking by call; exact binary portfolio optimisation under call envelopes and beneficiary caps; ITA-PB policy/equity rounds; published converging weights; Hybrid ITA-RW score-and-weight uncertainty; project inclusion probabilities; green/gray/red freezing; robustness index; deterministic scorecards; regional allocation; complete GAMS-ready export.",
+        "Expert respondent analytics": "Respondent-level data-quality checks; raw and normalised preference distributions; bootstrap mean intervals; Kendall concordance; Spearman dependence; PCA; automatically selected K-means preference segments; subgroup Kruskal-Wallis tests with Benjamini-Hochberg correction and epsilon-squared effects; empirical weight-scenario bridge to Hybrid ITA-RW.",
         "Monte Carlo": "Wild/residual/parametric OLS simulation with full coefficient draws, bias, Monte Carlo standard errors and percentile intervals; stochastic cost-benefit R&D portfolio selection with selection probabilities and downside distributions.",
         "Research Command Chair": "Free/offline one-screen question-batch autopilot plus retained advanced XLSX/PDF protocol builder; editable selected/all-question sets; feasibility verdicts; exact evidence scoping; safe equations; descriptive, correlation, OLS, Monte Carlo, normality, outlier, group-test, PCA, reliability, clustering, prediction, ARIMA and panel execution when required variable roles are mapped; genuine paper prose and complete analytical bundles.",
         "Outputs": "Exact tables, XLSX/CSV, self-contained HTML/JavaScript report, 600-dpi PNG and vector SVG/PDF figures in colour and black-and-white.",
@@ -1825,8 +1839,8 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends uploaded datasets to a paid or external analytics API. The optional Ollama enhancement uses only a locally running endpoint. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.5.3 documentation library")
-    st.info("The v5.5.0 technical report remains the complete architectural reference. The data-combination guide documents the side-by-side workflow; v5.5.3 adds analytical-sheet detection and a no-key interactive basemap.")
+    st.subheader("Version 5.6.1 documentation library")
+    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.6.1 adds respondent-level expert analytics and an empirical-weight bridge to the v5.6.0 ITA-PB / Hybrid ITA-RW layer while preserving every v5.5.3 capability.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
@@ -1838,6 +1852,8 @@ elif page == "13. Methods & reproducibility":
         ("Requirements coverage", "REQUIREMENTS_COVERAGE.md", "text/markdown"),
         ("Research Command Chair guide", "RESEARCH_COMMAND_CHAIR_GUIDE.md", "text/markdown"),
         ("All-dataset column-combination guide", "DATA_COMBINATION_GUIDE_v5_5_1.md", "text/markdown"),
+        ("ITA decision-support guide", "ITA_DECISION_SUPPORT_GUIDE_v5_6_0.md", "text/markdown"),
+        ("Expert respondent analytics guide", "EXPERT_RESPONDENT_ANALYTICS_GUIDE_v5_6_1.md", "text/markdown"),
     ]
     available_docs = [(label, BASE / "documentation" / filename, mime) for label, filename, mime in documentation_files if (BASE / "documentation" / filename).exists()]
     for row_start in range(0, len(available_docs), 2):
