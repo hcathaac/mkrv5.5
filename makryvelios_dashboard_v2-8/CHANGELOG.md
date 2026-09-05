@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 5.7.0 — 5 September 2026
+
+- Retained the complete v5.6.1 source tree and every v5.5.3 capability; this release is additive only.
+- Added a separate `12A.1B GAMS-compatible ITA Studio` with visible GAMS-style sets, parameters, `X(p)`, `PORTFSCORE`, equations and model export.
+- Added exact presets reconstructed from the supplied Evangelos Makryvelios GAMS sources: SYN2 540 Round 1–4 / No ITA and the 2,437-project R&D model with regional groups, sectors, interventions and round-specific Monte Carlo settings.
+- Added SciPy/HiGHS execution for the GAMS-compatible model, preserving GAMS as an explicit source/reference/export route rather than requiring a commercial licence.
+- Added hard GREEN/RED project fixing, GRAY/GREY effective-budget adjustments, region/sector/intervention ceilings, binding-constraint diagnostics and ITA-coloured Excel outputs.
+- Added original supplied `.gms` files under `reference_gams/vangelis/` with in-app viewing/downloading.
+- Added a visible session-only `LLM API Key` panel with Anthropic Claude and OpenAI-compatible providers; external LLM use is optional and invoked only after deterministic computation.
+- Connected the user-key LLM co-pilot to the GAMS Studio and Research Command Chair for interpretation/drafting while keeping solver/statistical outputs independent of the LLM.
+- Added final contrast guards so light controls use dark text and dark analytical surfaces use light text.
+
+
 ## Version 5.6.1 — September 2026
 
 - Added a separate `12A.2 Expert respondent analytics` module without changing the retained v5.6.0 or v5.5.3 workflows.

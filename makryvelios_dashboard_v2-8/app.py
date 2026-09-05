@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v5.6.1.
+"""Makryvelios Research Analytics & Econometrics Workbench v5.7.0.
 
 Run locally:  streamlit run app.py
 """
@@ -39,6 +39,7 @@ from reporting import build_html_report
 from advanced_analytics import advanced_clustering, panel_model_suite, predictive_model_comparison
 from mcda import METHODS as MCDA_METHODS, WEIGHT_METHODS, mcda_analysis, mcda_publication_bundle
 from ita_ui import render_ita_module
+from gams_ui import render_gams_studio
 from respondent_ui import render_respondent_module
 from visuals import (
     interactive_figure, publication_bundle, ols_publication_bundle,
@@ -54,6 +55,7 @@ from research_chair import (
     extract_pdf_collection, ollama_models, ollama_reply,
     research_bundle, select_pdf_evidence, year_bounds, chair_interactive_figures,
 )
+from llm_bridge import configured as llm_configured, llm_reply
 
 
 BASE = Path(__file__).resolve().parent
@@ -110,8 +112,20 @@ section[data-testid="stSidebar"] input,section[data-testid="stSidebar"] textarea
 h1,h2,h3{letter-spacing:-.018em;color:#effcff}h2{border-bottom:1px solid #173849;padding-bottom:.45rem}hr{border-color:#183344}.download-row{margin-top:.2rem}
 code{color:#7df3ff;background:#14384a!important}.stCaptionContainer{color:#94aab6}
 @media(max-width:760px){.hero{padding:1.25rem}.hero h1{font-size:1.55rem}.block-container{padding-left:.8rem;padding-right:.8rem}}
+
+/* v5.7.0 contrast guard: light controls always use dark text, dark surfaces always use light text. */
+section[data-testid="stSidebar"] [data-testid="stTextInput"]>div,section[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"]>div{background:#FFFFFF!important;border:1px solid #94A3B8!important}
+section[data-testid="stSidebar"] [data-testid="stTextInput"] input,section[data-testid="stSidebar"] [data-testid="stTextInput"] input[type="password"],section[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] *{color:#0F172A!important;-webkit-text-fill-color:#0F172A!important}
+section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{color:#475569!important;-webkit-text-fill-color:#475569!important}
+[data-testid="stAlert"]{background:#102D40!important;border:1px solid #2D6078!important;color:#FFFFFF!important}
+[data-testid="stAlert"] *{color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important}
+[data-testid="stDataFrame"]{background:#FFFFFF!important;color:#111827!important}
+.llm-panel{padding:.8rem .85rem;margin:.6rem 0;border:1px solid #D946EF;border-left:5px solid #D946EF;border-radius:11px;background:#1E293B;color:#FFFFFF;box-shadow:0 8px 24px #00000035}
+.llm-panel b{color:#F5D0FE!important}.llm-panel small{color:#E2E8F0!important}
+.gams-badge{display:inline-block;padding:.24rem .55rem;border-radius:999px;background:#0B1F3A;border:1px solid #38BDF8;color:#F8FAFC!important;font-weight:800;font-size:.78rem}
+
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.6.1 · ALL v5.5.3 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">GAMS-ready export</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.7.0 · ALL v5.6.1 + v5.5.3 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -300,6 +314,24 @@ with st.sidebar:
         selected_label = "No dataset"
         df = pd.DataFrame()
 
+    st.markdown('<div class="llm-panel"><b>LLM CO-PILOT · USER API KEY</b><br><small>Optional. Numerical analysis and optimisation continue to work without it.</small></div>', unsafe_allow_html=True)
+    llm_provider = st.selectbox("LLM provider", ["Anthropic Claude", "OpenAI-compatible"], key="global_llm_provider")
+    llm_api_key = st.text_input("LLM API Key", type="password", key="global_llm_api_key", help="Stored only in this Streamlit session; never written to application exports.")
+    default_llm_model = "claude-sonnet-5" if llm_provider == "Anthropic Claude" else ""
+    llm_model = st.text_input("LLM model ID", value=default_llm_model, placeholder="e.g. claude-sonnet-5", key=f"global_llm_model_{llm_provider}")
+    llm_base_url = ""
+    if llm_provider == "OpenAI-compatible":
+        llm_base_url = st.text_input("OpenAI-compatible base URL", value="https://api.openai.com/v1", key="global_llm_base_url")
+    llm_max_tokens = st.number_input("LLM maximum output tokens", min_value=256, max_value=12000, value=2500, step=256, key="global_llm_max_tokens")
+    st.session_state["llm_config"] = {
+        "provider": llm_provider, "api_key": llm_api_key, "model": llm_model.strip(),
+        "base_url": llm_base_url.strip(), "max_tokens": int(llm_max_tokens),
+    }
+    if llm_configured(st.session_state["llm_config"]):
+        st.success("LLM co-pilot configured for this session. It is used only when you explicitly press an LLM action button.")
+    else:
+        st.caption("Enter a key + model to enable external interpretation/drafting. The key is not required for any solver or statistical module.")
+
     st.divider()
     pages = [
         "1. Executive overview", "2. Data hub & audit", "3. Research questions",
@@ -312,6 +344,7 @@ with st.sidebar:
         "11. Publication figures & HTML report", "12. Scenario & allocation engine",
         "12A. Dedicated MCDA engine",
         "12A.1 ITA / public-funding decision support",
+        "12A.1B GAMS-compatible ITA Studio",
         "12A.2 Expert respondent analytics",
         "12B. Research Command Chair",
         "13. Methods & reproducibility",
@@ -1288,6 +1321,9 @@ elif page == "12A.1 ITA / public-funding decision support":
     render_ita_module(df)
 
 
+elif page == "12A.1B GAMS-compatible ITA Studio":
+    render_gams_studio(df)
+
 elif page == "12A.2 Expert respondent analytics":
     render_respondent_module(df, selected_label)
 
@@ -1297,9 +1333,9 @@ elif page == "12B. Research Command Chair":
     module_guide(
         "Give the dashboard a research question, algorithm, equation, steps and limitations; restrict the XLSX/CSV and PDF evidence to an exact analytical scope; receive reproducible tables, natural-language interpretation and a paper-writing blueprint.",
         "Define the data scope and years, select PDF pages or keywords, document the protocol, run it, then ask evidence-grounded questions and download the complete research bundle.",
-        "The built-in interpreter is deterministic and free. Optional Ollama improves prose locally. Neither mode can turn an observational association into a causal effect or validate an unsupported custom algorithm.",
+        "The built-in interpreter is deterministic and free. Optional local Ollama or the user-key LLM co-pilot can improve interpretation/prose after computation. No language model can turn an observational association into a causal effect or validate an unsupported custom algorithm.",
     )
-    st.info("Privacy-first design: spreadsheet and PDF content stays inside the running app. No paid API key is required. If Ollama is not installed locally, every core function and export remains available through the built-in offline interpreter.")
+    st.info("Privacy-first default: spreadsheet and PDF processing remains inside the running app and no paid API key is required. An external LLM receives only a compact computed-evidence summary when the user explicitly selects the External LLM engine and presses Ask; every core function and export remains available offline.")
 
     pdf_uploads = st.file_uploader(
         "Upload one or many supporting PDFs",
@@ -1726,7 +1762,8 @@ elif page == "12B. Research Command Chair":
                 st.info(comment)
 
             local_models = ollama_models()
-            engine_options = ["Built-in offline interpreter"] + (["Local Ollama"] if local_models else [])
+            external_llm = st.session_state.get("llm_config", {})
+            engine_options = ["Built-in offline interpreter"] + (["Local Ollama"] if local_models else []) + (["External LLM API"] if llm_configured(external_llm) else [])
             engine = st.radio("Natural-language engine", engine_options, horizontal=True, key="chair_engine")
             if not local_models:
                 st.caption("Optional enhancement: install Ollama locally and download a model. Streamlit Cloud will continue using the free built-in interpreter.")
@@ -1777,6 +1814,20 @@ The numerical answer is recalculated from the currently saved rows and variables
                     )
                     if engine == "Local Ollama" and selected_model:
                         reply = ollama_reply(natural_question, saved_protocol, computed_result, saved_evidence, selected_model)
+                    elif engine == "External LLM API":
+                        evidence_payload = {
+                            "question": natural_question,
+                            "algorithm": getattr(computed_result, "algorithm", "Research Chair"),
+                            "protocol": saved_protocol,
+                            "computed_comments": list(getattr(computed_result, "comments", [])),
+                            "computed_tables": {name: table.head(120).to_dict("records") for name, table in getattr(computed_result, "tables", {}).items()},
+                            "pdf_evidence": saved_evidence.head(40).to_dict("records") if isinstance(saved_evidence, pd.DataFrame) else [],
+                            "deterministic_interpretation": deterministic_reply,
+                        }
+                        reply = llm_reply(
+                            "Answer the research question using ONLY the computed evidence below. Preserve all numerical values, distinguish computation from interpretation, identify limitations, and provide publication-ready wording where appropriate.\n\n" + json.dumps(evidence_payload, ensure_ascii=False, default=str),
+                            external_llm,
+                        )
                     else:
                         reply = deterministic_reply
                     st.session_state["chair_result"] = computed_result
@@ -1823,6 +1874,7 @@ elif page == "13. Methods & reproducibility":
         "Decision support": "Econometric shock approximation and constrained linear-programming allocation.",
         "Multi-criteria decision analysis": "MAVT, TOPSIS and PROMETHEE II rankings; equal, user-defined, Entropy, CRITIC and AHP pairwise weights; AHP consistency; one-at-a-time weight sensitivity; Monte Carlo rank acceptability and method-agreement diagnostics.",
         "Iterative Trichotomic Approach": "Eligibility gates; C1-C6 weighted scoring; ranking by call; exact binary portfolio optimisation under call envelopes and beneficiary caps; ITA-PB policy/equity rounds; published converging weights; Hybrid ITA-RW score-and-weight uncertainty; project inclusion probabilities; green/gray/red freezing; robustness index; deterministic scorecards; regional allocation; complete GAMS-ready export.",
+        "GAMS-compatible ITA Studio": "Visible GAMS-style sets, parameters, X(p), PORTFSCORE and equations; original SYN2 540 and R&D 2437 presets; regional/sector/intervention ceilings; hard GREEN/RED fixing; effective-budget rules; HiGHS execution; Monte Carlo; original-source viewer; generated .gms/.prn packages; optional user-key LLM interpretation after computation.",
         "Expert respondent analytics": "Respondent-level data-quality checks; raw and normalised preference distributions; bootstrap mean intervals; Kendall concordance; Spearman dependence; PCA; automatically selected K-means preference segments; subgroup Kruskal-Wallis tests with Benjamini-Hochberg correction and epsilon-squared effects; empirical weight-scenario bridge to Hybrid ITA-RW.",
         "Monte Carlo": "Wild/residual/parametric OLS simulation with full coefficient draws, bias, Monte Carlo standard errors and percentile intervals; stochastic cost-benefit R&D portfolio selection with selection probabilities and downside distributions.",
         "Research Command Chair": "Free/offline one-screen question-batch autopilot plus retained advanced XLSX/PDF protocol builder; editable selected/all-question sets; feasibility verdicts; exact evidence scoping; safe equations; descriptive, correlation, OLS, Monte Carlo, normality, outlier, group-test, PCA, reliability, clustering, prediction, ARIMA and panel execution when required variable roles are mapped; genuine paper prose and complete analytical bundles.",
@@ -1837,10 +1889,10 @@ elif page == "13. Methods & reproducibility":
     st.write("Rscript detected." if r_available else "Rscript is not installed on this machine. Python functionality is unaffected; deploy R only if independent replication is required.")
     st.code("streamlit run app.py", language="bash")
     st.code("pip install -r requirements.txt", language="bash")
-    st.caption("The app never sends uploaded datasets to a paid or external analytics API. The optional Ollama enhancement uses only a locally running endpoint. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
+    st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.6.1 documentation library")
-    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.6.1 adds respondent-level expert analytics and an empirical-weight bridge to the v5.6.0 ITA-PB / Hybrid ITA-RW layer while preserving every v5.5.3 capability.")
+    st.subheader("Version 5.7.0 documentation library")
+    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.7.0 retains the complete v5.6.1 respondent/ITA upgrade and adds a visible GAMS-compatible optimisation Studio plus an optional user-key LLM co-pilot, while preserving every v5.5.3 capability.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
@@ -1854,6 +1906,8 @@ elif page == "13. Methods & reproducibility":
         ("All-dataset column-combination guide", "DATA_COMBINATION_GUIDE_v5_5_1.md", "text/markdown"),
         ("ITA decision-support guide", "ITA_DECISION_SUPPORT_GUIDE_v5_6_0.md", "text/markdown"),
         ("Expert respondent analytics guide", "EXPERT_RESPONDENT_ANALYTICS_GUIDE_v5_6_1.md", "text/markdown"),
+        ("GAMS-compatible ITA Studio guide", "GAMS_COMPATIBLE_ITA_STUDIO_v5_7_0.md", "text/markdown"),
+        ("User-key LLM co-pilot guide", "LLM_COPILOT_v5_7_0.md", "text/markdown"),
     ]
     available_docs = [(label, BASE / "documentation" / filename, mime) for label, filename, mime in documentation_files if (BASE / "documentation" / filename).exists()]
     for row_start in range(0, len(available_docs), 2):

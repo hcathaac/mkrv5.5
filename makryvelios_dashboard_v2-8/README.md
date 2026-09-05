@@ -1,6 +1,11 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.6.1
+# Makryvelios Research Analytics & Econometrics Command Centre v5.7.0
 
 This is a complete replacement package for the existing Streamlit app. It retains the original R&D data audit, variable dictionary, project/regional modelling, region-year panel, Greece GIS, spatial diagnostics and scenario functions, and adds schema-agnostic multi-file analysis.
+
+
+Version 5.7.0 is a strictly additive upgrade over v5.6.1. It adds a separate **12A.1B GAMS-compatible ITA Studio** that keeps Evangelos Makryvelios' GAMS algebraic logic visible while executing the equivalent binary MIP with SciPy/HiGHS. It includes the original SYN2 540 and R&D 2437 presets, regional/sector/intervention constraints, GREEN/RED `X.fx` logic, effective-budget rules, Monte Carlo, original `.gms` source viewing, `.gms/.prn` exports and reproducibility packages.
+
+A visible sidebar **LLM Co-pilot · User API Key** panel is also added. The key is session-only. External LLM use is optional and explicit; numerical analysis and optimisation never depend on it. The Research Command Chair and the GAMS Studio can use the configured model for interpretation and drafting after deterministic computation.
 
 Version 5.6.1 retains the complete v5.6.0 ITA upgrade and adds a separate **12A.2 Expert respondent analytics** module. It analyses complete respondent-level preference distributions, agreement, dependence, latent structure, exploratory preference segments and subgroup heterogeneity, then passes the validated empirical weight vectors directly to Hybrid ITA-RW. Every v5.5.3 capability remains available.
 

@@ -62,3 +62,13 @@ The application reproduces the model families and provides auditable exports. Nu
 - The DOCX and PDF editions are rendered deliverables of the same controlled source.
 - Focused quick-start, MCDA, Research Command Chair, deployment, validation and requirements guides support operational use without replacing the complete documentation.
 - Module 13 exposes the documentation files for direct download when they are present in the deployed package.
+
+## v5.6.1 respondent / ITA bridge and v5.7.0 GAMS-compatible extension
+
+- The v5.6.1 application remains the preserved functional base: the existing ITA/public-funding module, expert respondent analytics, empirical-weight bridge, Research Command Chair, mapping, econometrics, MCDA, Monte Carlo and export paths remain present.
+- `gams_compat.py` adds a solver-neutral GAMS-style binary portfolio model compiled to SciPy/HiGHS for licence-free execution; it does not replace or delete `ita.py`.
+- `gams_ui.py` adds the separate `12A.1B GAMS-compatible ITA Studio` while retaining the existing `12A.1` and `12A.2` modules.
+- `reference_gams/vangelis/` contains the supplied original `.gms` sources as an auditable reference library. The application keeps the original GAMS formulation visible and supports generated `.gms`, `.prn`, status lists and complete reproducibility packages.
+- The built-in presets preserve the supplied SYN2 540-project rounds and the 2,437-project R&D intervention/Monte-Carlo structure. Source discrepancies are preserved and surfaced rather than silently corrected.
+- `llm_bridge.py` provides an optional user-key interpretation layer. API credentials are held only in Streamlit session state and are not written to configuration files or exports. The LLM is not used as the mathematical solver and cannot silently alter portfolio decisions.
+- The default numerical execution remains deterministic/open-source (SciPy/HiGHS). Native GAMS remains an external compatibility/replication route if a licence is available later.

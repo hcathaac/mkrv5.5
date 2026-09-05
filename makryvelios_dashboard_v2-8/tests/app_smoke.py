@@ -6,12 +6,15 @@ from streamlit.testing.v1 import AppTest
 
 at = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py", default_timeout=90)
 source = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
-assert "POSTDOCTORAL ANALYTICAL ENGINE v5.6.1" in source
+assert "POSTDOCTORAL ANALYTICAL ENGINE v5.7.0" in source
 assert "12B. Research Command Chair" in source
 assert "12A.1 ITA / public-funding decision support" in source
+assert "12A.1B GAMS-compatible ITA Studio" in source
 assert "12A.2 Expert respondent analytics" in source
-assert "ALL v5.5.3 CAPABILITIES RETAINED" in source
-assert "Version 5.6.1 documentation library" in source
+assert "ALL v5.6.1 + v5.5.3 CAPABILITIES RETAINED" in source
+assert "Version 5.7.0 documentation library" in source
+assert "LLM CO-PILOT · USER API KEY" in source
+assert "render_gams_studio" in source
 assert "stFileUploaderDropzone" in source
 assert "stWidgetLabel" in source
 assert "#D8C7FF" in source

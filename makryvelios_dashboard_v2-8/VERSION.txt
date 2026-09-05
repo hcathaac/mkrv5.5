@@ -1,7 +1,7 @@
 Makryvelios Research Analytics & Econometrics Workbench
-Version: 5.6.1
-Release date: 2026-09-02
-Compatibility folder: makryvelios_dashboard_v2
-Streamlit entry point: makryvelios_dashboard_v2/app.py
-Documentation: complete DOCX/PDF and focused guides under makryvelios_dashboard_v2/documentation/
-Release note: adds a complete respondent-level expert analytics module and empirical-weight scenario bridge to Hybrid ITA-RW, retaining the v5.6.0 ITA/public-funding visualisation and every v5.5.3 capability.
+Version: 5.7.0
+Release date: 2026-09-05
+Compatibility folder: makryvelios_dashboard_v2-8
+Streamlit entry point: makryvelios_dashboard_v2-8/app.py
+Documentation: complete retained documentation plus GAMS-Compatible ITA Studio and User-Key LLM Co-pilot guides.
+Release note: additive upgrade over v5.6.1. Adds a visible GAMS-compatible optimisation Studio using SciPy/HiGHS, original Vangelis GAMS reference sources/presets, Monte Carlo and GAMS/PRN packages, plus an optional session-only user API-key LLM co-pilot. No existing v5.6.1 or v5.5.3 capability is removed.

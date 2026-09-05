@@ -34,6 +34,12 @@ from ita import (
     solve_portfolio,
 )
 from respondent import analyse_respondents, respondent_export_bundle
+from gams_compat import (
+    SYN2_WEIGHT_ROUNDS, gams_model_text as gams_compat_model_text,
+    gams_reproducibility_bundle, monte_carlo_gams_compatible,
+    prepare_gams_compatible_model, solve_gams_compatible, solve_weight_matrix,
+)
+from llm_bridge import configured as llm_configured
 from research_chair import (
     add_safe_derived_column, apply_scope, build_offline_reply,
     build_paper_blueprint, execute_protocol, execute_natural_language_command, research_bundle,
@@ -77,6 +83,67 @@ def synthetic_ita_projects() -> tuple[pd.DataFrame, pd.DataFrame]:
     )
     return prepared, criteria
 
+
+
+def test_gams_compatible_backend_preserves_binary_constraints_and_exports():
+    raw = pd.DataFrame({
+        "project": ["1", "2", "3", "4", "5", "6"],
+        "C1src": [5, 4, 3, 2, 1, 4.5],
+        "C2src": [4, 5, 3, 2, 1, 4],
+        "C3src": [3, 4, 5, 2, 1, 4],
+        "EP2": [10, 20, 5, 5, 1, 12],
+        "ATT": [5, 2, 10, 3, 1, 6],
+        "sector_src": ["1", "1", "2", "2", "1", "2"],
+        "intv_src": ["1", "2", "3", "1", "2", "3"],
+        "status": ["GREEN", "GRAY", "RED", "GRAY", "GRAY", "GRAY"],
+    })
+    model = prepare_gams_compatible_model(
+        raw, project_id_column="project", criterion_columns=["C1src", "C2src", "C3src"],
+        region_budget_columns={"EP2": "EP2", "ATT": "ATT"}, region_caps={"EP2": 40, "ATT": 20},
+        sector_column="sector_src", sector_caps={"1": 40, "2": 40},
+        intervention_column="intv_src", intervention_caps={"1": 30, "2": 30, "3": 30},
+        status_column="status", budget_factors={"GREY": .925},
+        intervention_weights={"1": [.2, .3, .5], "2": [.4, .3, .3], "3": [.3, .2, .5]},
+        metadata={"fix_green": True, "fix_red": True, "mip_rel_gap": .0005},
+    )
+    run = solve_gams_compatible(model, mip_rel_gap=.0005)
+    assert run.status == "OPTIMAL"
+    assert run.project_results.set_index("project_id").loc["1", "selected"] == 1
+    assert run.project_results.set_index("project_id").loc["3", "selected"] == 0
+    assert run.constraint_diagnostics.used.le(run.constraint_diagnostics.cap + 1e-8).all()
+    text = gams_compat_model_text(model)
+    assert "Binary Variables X(p)" in text
+    assert "PORTFSCORE" in text
+    assert "X.fx(GREEN)=1" in text
+    package = gams_reproducibility_bundle(model, run=run)
+    with zipfile.ZipFile(io.BytesIO(package)) as archive:
+        assert {"model.gms", "budget.prn", "score.prn", "project_crosswalk.csv", "settings.json"}.issubset(archive.namelist())
+
+
+def test_syn2_original_weight_rounds_and_monte_carlo_are_reproducible():
+    assert set(SYN2_WEIGHT_ROUNDS) == {"Round 1", "Round 2", "Round 3", "Round 4", "No ITA"}
+    np.testing.assert_allclose(SYN2_WEIGHT_ROUNDS["Round 4"][:, 0], [.3, .3, .4])
+    raw = pd.DataFrame({
+        "project": ["1", "2", "3", "4"], "c1": [5, 4, 3, 2], "c2": [4, 5, 3, 2], "c3": [3, 4, 5, 2],
+        "EP2": [10, 10, 10, 10], "ATT": [1, 1, 1, 1], "sector": ["1", "1", "2", "2"],
+    })
+    model = prepare_gams_compatible_model(
+        raw, project_id_column="project", criterion_columns=["c1", "c2", "c3"],
+        region_budget_columns={"EP2": "EP2", "ATT": "ATT"}, region_caps={"EP2": 20, "ATT": 4},
+        sector_column="sector", sector_caps={"1": 22, "2": 22},
+    )
+    matrix = pd.DataFrame(SYN2_WEIGHT_ROUNDS["Round 1"], index=["C1", "C2", "C3"], columns=["DM1", "DM2", "DM3"])
+    summary, runs = solve_weight_matrix(model, matrix)
+    assert len(summary) == 3 and "__selection_matrix__" in runs
+    first_projects, first_draws = monte_carlo_gams_compatible(model, weights=[.3, .3, .4], iterations=8, seed=5780, perturbation_step=.5)
+    second_projects, second_draws = monte_carlo_gams_compatible(model, weights=[.3, .3, .4], iterations=8, seed=5780, perturbation_step=.5)
+    pd.testing.assert_frame_equal(first_projects, second_projects)
+    pd.testing.assert_frame_equal(first_draws, second_draws)
+
+
+def test_llm_configuration_requires_user_key_and_model():
+    assert not llm_configured({"provider": "Anthropic Claude", "api_key": "", "model": "claude-sonnet-5"})
+    assert llm_configured({"provider": "Anthropic Claude", "api_key": "test-key", "model": "claude-sonnet-5"})
 
 def test_converging_weights_match_published_example():
     expected_round_2 = np.array([[.6, .15, .25], [.1, .65, .25], [.1, .15, .75]])
