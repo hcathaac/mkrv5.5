@@ -1,3 +1,12 @@
+# v5.7.1 — 2026-09-05
+
+- Fixed GAMS regional auto-mapping so multiple regions are never silently assigned to the same numeric source column.
+- Added explicit unmapped/duplicate-region validation and disables Solve until mappings are valid.
+- Embedded the original supplied SYN2 540 GAMS input tables (`budget_syn2.prn`, `score_syn2.prn`, `sector_syn2.prn`) and GREEN/RED/GRAY sets as an exact-replication data source.
+- Added a visible SYN2 source selector: original supplied GAMS inputs vs current application dataset.
+- Increased caption/help-text contrast on dark surfaces.
+- No existing capability removed.
+
 # Changelog
 
 ## Version 5.7.0 — 5 September 2026

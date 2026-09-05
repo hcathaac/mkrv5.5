@@ -44,3 +44,8 @@ The Studio provides solver status, portfolio score, selected projects, allocatio
 ## Original-source visibility
 
 The supplied `.gms` files are bundled under `reference_gams/vangelis/` and can be inspected and downloaded from the Studio. This preserves the researcher's original implementation as a visible methodological reference.
+
+
+## v5.7.1 mapping and exact-replication update
+
+The SYN2 preset now includes the supplied `budget_syn2.prn`, `score_syn2.prn`, `sector_syn2.prn`, `green1_syn2.txt`, `red1_syn2.txt` and `gray1.txt` as an embedded exact-replication input source. The regional mapper never silently assigns one source column to multiple GAMS regions; missing or duplicate mappings are shown explicitly and solving is blocked until they are resolved.

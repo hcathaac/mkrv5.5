@@ -1,5 +1,5 @@
 Makryvelios Research Analytics & Econometrics Workbench
-Version: 5.7.0
+Version: 5.7.1
 Release date: 2026-09-05
 Compatibility folder: makryvelios_dashboard_v2-8
 Streamlit entry point: makryvelios_dashboard_v2-8/app.py

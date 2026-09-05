@@ -110,7 +110,7 @@ section[data-testid="stSidebar"] input,section[data-testid="stSidebar"] textarea
 [data-baseweb="tab-list"]{gap:.4rem;background:#123449;border:1px solid #12384b;border-radius:12px;padding:.35rem}[data-baseweb="tab"]{border-radius:8px;padding:.5rem .8rem;color:#FFFFFF!important}[data-baseweb="tab"] *{color:#FFFFFF!important}[aria-selected="true"]{background:#176077!important;color:#FFFFFF!important}
 [data-testid="stExpander"]{background:#123449;border:1px solid #15384a;border-radius:12px}.stAlert{border-radius:12px;border:1px solid #1b5265;background:#15384c}.stAlert,.stAlert *,[data-testid="stAlert"],[data-testid="stAlert"] *,[data-baseweb="notification"],[data-baseweb="notification"] *{color:#FFFFFF!important}
 h1,h2,h3{letter-spacing:-.018em;color:#effcff}h2{border-bottom:1px solid #173849;padding-bottom:.45rem}hr{border-color:#183344}.download-row{margin-top:.2rem}
-code{color:#7df3ff;background:#14384a!important}.stCaptionContainer{color:#94aab6}
+code{color:#7df3ff;background:#14384a!important}.stCaptionContainer,.stCaptionContainer p,[data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] *{color:#D7E7EE!important;-webkit-text-fill-color:#D7E7EE!important;opacity:1!important}
 @media(max-width:760px){.hero{padding:1.25rem}.hero h1{font-size:1.55rem}.block-container{padding-left:.8rem;padding-right:.8rem}}
 
 /* v5.7.0 contrast guard: light controls always use dark text, dark surfaces always use light text. */

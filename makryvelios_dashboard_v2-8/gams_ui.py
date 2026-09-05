@@ -31,6 +31,7 @@ from llm_bridge import configured as llm_configured, llm_reply, summarise_ita_fo
 
 BASE = Path(__file__).resolve().parent
 REFERENCE_GAMS = BASE / "reference_gams" / "vangelis"
+REFERENCE_GAMS_DATA = REFERENCE_GAMS / "data"
 
 STATUS_STYLE = {
     "GREEN": ("#DCFCE7", "#14532D"),
@@ -50,6 +51,53 @@ def _suggest(tokens: tuple[str, ...], columns: list[str], excluded: set[str] | N
             return column
     return None
 
+
+
+
+def _read_reference_id_set(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    raw = path.read_text(encoding="utf-8", errors="ignore")
+    return {token.strip().rstrip(",") for token in re.split(r"[\s,;]+", raw) if token.strip().rstrip(",")}
+
+
+@st.cache_data(show_spinner=False)
+def _load_original_syn2_reference() -> pd.DataFrame:
+    """Reconstruct the supplied SYN2 540 GAMS input table by project ID."""
+    required = [
+        REFERENCE_GAMS_DATA / "budget_syn2.prn",
+        REFERENCE_GAMS_DATA / "score_syn2.prn",
+        REFERENCE_GAMS_DATA / "sector_syn2.prn",
+    ]
+    missing = [str(path.name) for path in required if not path.exists()]
+    if missing:
+        raise FileNotFoundError("Missing supplied SYN2 reference input(s): " + ", ".join(missing))
+
+    budget = pd.read_csv(required[0], sep=r"\s+", engine="python", index_col=0)
+    budget.index = budget.index.astype(str)
+    budget.index.name = "project_id"
+    budget.columns = [str(c).strip().upper() for c in budget.columns]
+
+    score = pd.read_csv(required[1], sep=r"\s+", engine="python", index_col=0)
+    score.index = score.index.astype(str)
+    score.index.name = "project_id"
+    score.columns = [f"C{i + 1}" for i in range(score.shape[1])]
+
+    sector = pd.read_csv(required[2], sep=r"\s+", engine="python", header=None, names=["project_id", "sector"], dtype={"project_id": str})
+    sector["project_id"] = sector["project_id"].astype(str)
+
+    frame = budget.join(score, how="inner").reset_index().merge(sector, on="project_id", how="left", validate="one_to_one")
+    frame["ita_status"] = "UNCLASSIFIED"
+    status_files = {
+        "GREEN": REFERENCE_GAMS_DATA / "green1_syn2.txt",
+        "RED": REFERENCE_GAMS_DATA / "red1_syn2.txt",
+        "GRAY": REFERENCE_GAMS_DATA / "gray1.txt",
+    }
+    for status, path in status_files.items():
+        ids = _read_reference_id_set(path)
+        if ids:
+            frame.loc[frame["project_id"].isin(ids), "ita_status"] = status
+    return frame
 
 def _read_id_file(upload) -> list[str]:
     if upload is None:
@@ -89,34 +137,62 @@ def _region_mapping_editor(df: pd.DataFrame, preset: dict, key: str) -> tuple[di
     rows = []
     regions = preset.get("regions", [])
     if not regions:
-        guessed = [c for c in numeric if any(token in str(c).lower() for token in ("budget", "cost", "fund", "att", "cmk", "ep2"))]
+        guessed = [c for c in numeric if any(token in str(c).lower() for token in ("budget", "cost", "fund", "att", "cmk", "ep2", "wmk", "ste"))]
         regions = [str(c) for c in guessed[:13]]
+
+    used: set[str] = set()
+    budget_like = [c for c in numeric if any(token in str(c).lower() for token in ("budget", "cost", "fund", "att", "cmk", "ep2", "wmk", "ste"))]
     for region in regions:
-        exact = next((c for c in numeric if str(c).strip().upper() == str(region).upper()), None)
-        fuzzy = exact or _suggest((str(region).lower(),), numeric)
-        rows.append({"Region / GAMS rg": region, "Source budget column": fuzzy or (numeric[0] if numeric else ""), "Budget cap": float(preset.get("region_caps", {}).get(region, 0.0))})
+        exact = next((c for c in numeric if c not in used and str(c).strip().upper() == str(region).upper()), None)
+        fuzzy = exact or next((c for c in numeric if c not in used and str(region).lower() in str(c).lower()), None)
+        candidate = fuzzy
+        if candidate is None and len(regions) == len(budget_like):
+            candidate = next((c for c in budget_like if c not in used), None)
+        if candidate is not None:
+            used.add(candidate)
+        rows.append({
+            "Region / GAMS rg": region,
+            "Source budget column": candidate or "",
+            "Budget cap": float(preset.get("region_caps", {}).get(region, 0.0)),
+        })
+
     frame = pd.DataFrame(rows)
     if frame.empty:
-        frame = pd.DataFrame([{"Region / GAMS rg": "REGION1", "Source budget column": numeric[0] if numeric else "", "Budget cap": 0.0}])
+        frame = pd.DataFrame([{"Region / GAMS rg": "REGION1", "Source budget column": "", "Budget cap": 0.0}])
     edited = st.data_editor(
         frame,
         width="stretch",
         hide_index=True,
         num_rows="dynamic",
         column_config={
-            "Source budget column": st.column_config.SelectboxColumn("Source budget column", options=numeric, required=True),
+            "Source budget column": st.column_config.SelectboxColumn("Source budget column", options=[""] + numeric, required=False),
             "Budget cap": st.column_config.NumberColumn("Budget cap", min_value=0.0, format="€ %.0f"),
         },
         key=key,
     )
     mapping, caps = {}, {}
+    duplicate_sources: dict[str, list[str]] = {}
+    source_to_regions: dict[str, list[str]] = {}
+    unmapped = []
     for _, row in edited.iterrows():
         region = str(row.get("Region / GAMS rg", "")).strip()
         source = str(row.get("Source budget column", "")).strip()
-        if region and source:
-            mapping[region] = source
-            if pd.notna(row.get("Budget cap")) and float(row["Budget cap"]) > 0:
-                caps[region] = float(row["Budget cap"])
+        if not region:
+            continue
+        if not source:
+            unmapped.append(region)
+            continue
+        source_to_regions.setdefault(source, []).append(region)
+        mapping[region] = source
+        if pd.notna(row.get("Budget cap")) and float(row["Budget cap"]) > 0:
+            caps[region] = float(row["Budget cap"])
+
+    duplicate_sources = {src: regs for src, regs in source_to_regions.items() if len(regs) > 1}
+    if duplicate_sources:
+        details = "; ".join(f"{src} → {', '.join(regs)}" for src, regs in duplicate_sources.items())
+        st.error("Each GAMS region must use a different source budget column. Duplicate mapping: " + details)
+    if unmapped:
+        st.warning("Map a source budget column for: " + ", ".join(unmapped) + ". The model will not run until every required region is mapped.")
     return mapping, caps
 
 
@@ -242,6 +318,27 @@ def render_gams_studio(df: pd.DataFrame) -> None:
 
     preset_name = st.selectbox("Model template", ["Vangelis – SYN2 540", "Vangelis – R&D 2437", "Custom"], key="gams_preset")
     preset = preset_definition(preset_name)
+
+    if preset_name == "Vangelis – SYN2 540":
+        syn2_mode = st.radio(
+            "SYN2 input source",
+            ["Original supplied GAMS inputs (recommended for exact replication)", "Current application dataset"],
+            horizontal=True,
+            key="gams_syn2_input_source",
+        )
+        if syn2_mode.startswith("Original supplied"):
+            try:
+                df = _load_original_syn2_reference()
+                st.success("Loaded the original supplied SYN2 GAMS inputs: 540 projects, EP2/ATT/CMK/WMK/STE budgets, C1-C3 scores, sectors and GREEN/RED/GRAY sets.")
+                unclassified = int((df["ita_status"] == "UNCLASSIFIED").sum())
+                if unclassified:
+                    st.caption(f"{unclassified} supplied project ID is not present in the GREEN/RED/GRAY text sets and remains UNCLASSIFIED; it is not silently reassigned.")
+            except Exception as exc:
+                st.error(f"Could not load the embedded supplied SYN2 inputs: {exc}")
+                return
+    elif preset_name == "Vangelis – R&D 2437":
+        st.info("The supplied 2,437-project package contains the GAMS model source but not its complete raw budget/score/sector input tables. Map the active dataset or upload those source tables when available.")
+
     if preset.get("notes"):
         with st.expander("What this preset preserves from the supplied GAMS files", expanded=True):
             for note in preset["notes"]:
@@ -348,9 +445,17 @@ def render_gams_studio(df: pd.DataFrame) -> None:
         metadata["source_model_note"] = "CMK differs by €1,000 between supplied first-round and later source files; configured cap is shown explicitly in the UI."
 
     st.markdown("### 4. Build and solve")
+    expected_regions = list(preset.get("regions", []))
+    duplicate_budget_columns = len(set(region_mapping.values())) != len(region_mapping)
+    missing_regions = [region for region in expected_regions if region not in region_mapping]
+    mapping_ready = bool(region_mapping) and not duplicate_budget_columns and not missing_regions
+    if duplicate_budget_columns:
+        st.error("Resolve duplicate regional budget mappings above before solving.")
+    if missing_regions:
+        st.warning("Required GAMS region mapping still missing for: " + ", ".join(missing_regions))
     r1, r2 = st.columns([2, 1])
     with r1:
-        run_clicked = st.button("RUN GAMS-COMPATIBLE MODEL WITH HiGHS", type="primary", key="gams_run")
+        run_clicked = st.button("RUN GAMS-COMPATIBLE MODEL WITH HiGHS", type="primary", key="gams_run", disabled=not mapping_ready)
     with r2:
         st.caption("The solver is HiGHS. The model formulation and exports remain GAMS-style and auditable.")
 
