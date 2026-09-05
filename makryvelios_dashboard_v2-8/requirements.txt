@@ -12,3 +12,6 @@ matplotlib>=3.8,<4
 linearmodels>=6,<8
 pypdf>=5,<7
 python-docx>=1.1,<2
+duckdb>=1.1,<2
+pyarrow>=17,<24
+shap>=0.46,<1

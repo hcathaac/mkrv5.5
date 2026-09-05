@@ -108,7 +108,7 @@ def promote_embedded_header(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def read_tabular_bytes(name: str, payload: bytes, all_sheets: bool = True) -> dict[str, pd.DataFrame]:
-    """Read CSV/TSV/XLS/XLSX bytes and return named datasets."""
+    """Read CSV/TSV/XLS/XLSX/Parquet/Feather/Arrow bytes and return named datasets."""
     lower = name.lower()
     src = io.BytesIO(payload)
     frames: dict[str, pd.DataFrame] = {}
@@ -118,6 +118,30 @@ def read_tabular_bytes(name: str, payload: bytes, all_sheets: bool = True) -> di
         for sheet in sheets:
             frame = pd.read_excel(book, sheet_name=sheet)
             frames[f"{name} :: {sheet}"] = frame
+    elif lower.endswith((".parquet", ".pq")):
+        try:
+            frames[name] = pd.read_parquet(src, engine="pyarrow")
+        except Exception as exc:
+            raise RuntimeError("Parquet input requires PyArrow; install the bundled v5.8.0 requirements.") from exc
+    elif lower.endswith(".feather"):
+        try:
+            frames[name] = pd.read_feather(src)
+        except Exception as exc:
+            raise RuntimeError("Feather input requires PyArrow; install the bundled v5.8.0 requirements.") from exc
+    elif lower.endswith(".arrow"):
+        try:
+            import pyarrow.ipc as ipc
+            src.seek(0)
+            reader = ipc.open_file(src)
+            frames[name] = reader.read_all().to_pandas()
+        except Exception:
+            try:
+                src.seek(0)
+                import pyarrow.ipc as ipc
+                reader = ipc.open_stream(src)
+                frames[name] = reader.read_all().to_pandas()
+            except Exception as exc:
+                raise RuntimeError("Arrow IPC input requires PyArrow; install the bundled v5.8.0 requirements.") from exc
     elif lower.endswith(".tsv"):
         frames[name] = pd.read_csv(src, sep="\t", low_memory=False)
     elif lower.endswith(".csv"):

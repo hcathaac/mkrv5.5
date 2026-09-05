@@ -79,3 +79,14 @@ The application reproduces the model families and provides auditable exports. Nu
 - Explicit GAMS/NUTS crosswalks are coded only where the source abbreviation is geographically identifiable. In SYN2, `EP2` is documented in the supplied `.gms` source as the EPANEK2 programme budget and is therefore kept outside the geographic map rather than assigned to a Greek region.
 - High-detail publication maps fill NUTS-2 analytical regions and overlay NUTS-3 vector linework for coastline, island and regional-unit detail. Vector SVG/PDF exports retain boundary detail independently of raster DPI.
 - GAMS-style solver/equation/variable listings are generated from the deterministic HiGHS solution. Integer-program shadow prices are not fabricated.
+
+## Frontier and agentic extension — v5.8.0
+
+- `frontier_methods.py` and `frontier_ui.py` add the isolated 12C laboratory without replacing any earlier estimator or optimisation engine.
+- Pareto optimisation uses SciPy/HiGHS binary MILP and reports only non-dominated portfolios discovered by a deterministic simplex scan.
+- Causal inference uses cross-fitted AIPW for a binary treatment and exposes overlap/balance diagnostics plus the assumptions that must be justified outside the software.
+- Bayesian regression is fully offline using a Normal–Inverse-Gamma conjugate posterior and posterior predictive simulation.
+- SHAP TreeExplainer is used when available; a deterministic explainability fallback preserves function if the optional runtime cannot load SHAP.
+- DuckDB/PyArrow are additive data-engine layers; `analytics_core.py` retains all previous readers and adds Parquet, Feather and Arrow IPC input.
+- `agentic_research.py` and `agentic_ui.py` add the standalone 12D mode. PDF text stays local by default; the deterministic agent generates up to 150 RQs, runs bounded analytical routines and builds a DOCX/XLSX/JSON/HTML/graphics package.
+- Any external LLM call remains optional, explicit and post-computation. The LLM is never the source of numerical results and cannot bypass the user approval gate.

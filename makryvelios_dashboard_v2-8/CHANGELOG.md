@@ -1,3 +1,15 @@
+# v5.8.0 — 2026-09-06
+
+- Strictly additive upgrade over v5.7.2; no previous module or export path removed.
+- Added **12C Frontier methods laboratory** with Pareto/multi-objective/robust binary portfolio optimisation, cross-fitted doubly robust AIPW causal estimation, offline Bayesian posterior/predictive modelling, SHAP explainable ML and DuckDB/Arrow/Parquet large-data tooling.
+- Added **12D Agentic Research Mode** as a separate approval-gated workflow that functions without an AI API.
+- Agentic mode locally indexes literature PDFs, detects source identifiers, creates extractive evidence notes, generates up to 150 research questions per batch, builds a transparent plan, runs bounded validated analyses, drafts discussion/conclusions and exports a near-submission research package.
+- Added DOCX + XLSX + JSON + HTML + 600-dpi PNG + vector SVG/PDF outputs to the Agentic submission package where generated.
+- Connected optional user-key LLM synthesis to Agentic mode only after deterministic computation and explicit user action; numerical engines remain AI-independent.
+- Extended the intake layer to Parquet, Feather and Arrow IPC while retaining every XLS/XLSX/XLSM/CSV/TSV workflow.
+- Added read-only DuckDB SQL, compressed Parquet and Arrow IPC exports.
+- Added explicit approval gates and scientific safeguards for causal identification, PDF citation verification and near-submission draft status.
+
 # v5.7.2 — 2026-09-05
 
 - Added a dedicated **Maps & spatial** tab inside 12A.1B GAMS-compatible ITA Studio.

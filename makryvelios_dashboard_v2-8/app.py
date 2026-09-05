@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v5.7.2.
+"""Makryvelios Research Analytics & Econometrics Workbench v5.8.0.
 
 Run locally:  streamlit run app.py
 """
@@ -41,6 +41,8 @@ from mcda import METHODS as MCDA_METHODS, WEIGHT_METHODS, mcda_analysis, mcda_pu
 from ita_ui import render_ita_module
 from gams_ui import render_gams_studio
 from respondent_ui import render_respondent_module
+from frontier_ui import render_frontier_methods
+from agentic_ui import render_agentic_research
 from visuals import (
     interactive_figure, publication_bundle, ols_publication_bundle,
     monte_carlo_publication_bundle, clustering_publication_bundle,
@@ -125,7 +127,7 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .gams-badge{display:inline-block;padding:.24rem .55rem;border-radius:999px;background:#0B1F3A;border:1px solid #38BDF8;color:#F8FAFC!important;font-weight:800;font-size:.78rem}
 
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.7.2 · ALL v5.6.1 + v5.5.3 CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.8.0 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -241,7 +243,7 @@ def figure_with_downloads(fig, stem: str, data: pd.DataFrame | None = None, expl
 with st.sidebar:
     st.header("Data intake console")
     st.markdown('<div style="padding:.55rem .7rem;margin:0 0 .5rem;border:1px solid #1d7282;border-radius:9px;background:#12374b;color:#8cf4ff;font-size:.78rem;font-weight:800;letter-spacing:.06em">⬆ SECURE MULTI-FILE UPLOAD</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader("Upload one or many XLSX/XLS/CSV/TSV files", type=["xlsx", "xlsm", "xls", "csv", "tsv"], accept_multiple_files=True)
+    uploaded = st.file_uploader("Upload one or many XLSX/XLS/CSV/TSV/Parquet/Arrow files", type=["xlsx", "xlsm", "xls", "csv", "tsv", "parquet", "pq", "feather", "arrow"], accept_multiple_files=True)
     all_sheets = st.checkbox("Read every Excel sheet", value=True)
     normalise = st.checkbox("Normalise variable names", value=True, help="Recommended for modelling; original values are not altered.")
     if uploaded:
@@ -347,6 +349,8 @@ with st.sidebar:
         "12A.1B GAMS-compatible ITA Studio",
         "12A.2 Expert respondent analytics",
         "12B. Research Command Chair",
+        "12C. Frontier methods laboratory",
+        "12D. Agentic Research Mode",
         "13. Methods & reproducibility",
     ]
     page = st.radio("Module", pages)
@@ -357,7 +361,7 @@ with st.sidebar:
         st.caption(f"Active: {selected_label}\n\n{len(df):,} rows × {df.shape[1]:,} variables")
 
 
-if df.empty and page != "12B. Research Command Chair":
+if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode"}:
     st.info("Upload one or more Excel/CSV files in the sidebar. The app accepts multiple files and multiple workbook sheets simultaneously.")
     st.subheader("Research programme already encoded")
     guided_dataframe("Encoded research programme", RQS)
@@ -379,7 +383,7 @@ if page == "1. Executive overview":
     c2.metric("Variables", f"{df.shape[1]:,}")
     c3.metric("Numeric", f"{len(numeric):,}")
     c4.metric("Categorical", f"{len(categorical):,}")
-    c5.metric("Research questions", len(RQS))
+    c5.metric("Encoded source RQs", len(RQS))
     st.subheader("Analysis navigator")
     navigator = pd.DataFrame([
         ["OLS & robust regression", "6. OLS & econometric laboratory", "Continuous outcomes; transparent conditional associations", "Coefficient, CI, diagnostics, fitted/residual evidence"],
@@ -394,6 +398,8 @@ if page == "1. Executive overview":
         ["Advanced clustering", "10A. Advanced clustering & segmentation", "One or many absorption/finance/innovation variables", "Automatic k, four algorithms, profiles and stability diagnostics"],
         ["Predictive model comparison", "10B. Predictive model laboratory", "Out-of-sample outcome prediction", "Seven models, CV metrics and permutation importance"],
         ["Multi-criteria decision analysis", "12A. Dedicated MCDA engine", "Transparent ranking of projects, regions or policy alternatives", "MAVT/TOPSIS/PROMETHEE-II, AHP/objective weights and robustness evidence"],
+        ["Frontier causal / Bayesian / Pareto / XAI", "12C. Frontier methods laboratory", "Questions requiring doubly robust causal estimation, posterior uncertainty, multi-objective frontiers or explainable ML", "AIPW, posterior draws/predictive checks, Pareto portfolios, SHAP and large-data outputs"],
+        ["Agentic end-to-end research", "12D. Agentic Research Mode", "Fast evidence-to-submission workflow with dataset + literature PDFs", "Up to 150 RQs, approved analysis plan, executed models, discussion/conclusions, DOCX/XLSX/JSON/HTML/graphics bundle"],
     ], columns=["method", "module", "use_when", "principal_outputs"])
     guided_dataframe("Analysis navigator", navigator)
     st.download_button("Download method navigator", to_excel_bytes({"Method navigator": navigator}), "method_navigator.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1328,6 +1334,14 @@ elif page == "12A.2 Expert respondent analytics":
     render_respondent_module(df, selected_label)
 
 
+elif page == "12C. Frontier methods laboratory":
+    render_frontier_methods(df)
+
+
+elif page == "12D. Agentic Research Mode":
+    render_agentic_research(df, selected_label)
+
+
 elif page == "12B. Research Command Chair":
     st.subheader("Research Command Chair — free/offline evidence and protocol assistant")
     module_guide(
@@ -1878,7 +1892,9 @@ elif page == "13. Methods & reproducibility":
         "Expert respondent analytics": "Respondent-level data-quality checks; raw and normalised preference distributions; bootstrap mean intervals; Kendall concordance; Spearman dependence; PCA; automatically selected K-means preference segments; subgroup Kruskal-Wallis tests with Benjamini-Hochberg correction and epsilon-squared effects; empirical weight-scenario bridge to Hybrid ITA-RW.",
         "Monte Carlo": "Wild/residual/parametric OLS simulation with full coefficient draws, bias, Monte Carlo standard errors and percentile intervals; stochastic cost-benefit R&D portfolio selection with selection probabilities and downside distributions.",
         "Research Command Chair": "Free/offline one-screen question-batch autopilot plus retained advanced XLSX/PDF protocol builder; editable selected/all-question sets; feasibility verdicts; exact evidence scoping; safe equations; descriptive, correlation, OLS, Monte Carlo, normality, outlier, group-test, PCA, reliability, clustering, prediction, ARIMA and panel execution when required variable roles are mapped; genuine paper prose and complete analytical bundles.",
-        "Outputs": "Exact tables, XLSX/CSV, self-contained HTML/JavaScript report, 600-dpi PNG and vector SVG/PDF figures in colour and black-and-white.",
+        "Frontier methods": "Multi-objective Pareto and robust binary portfolio optimisation; cross-fitted doubly robust AIPW causal estimation with overlap/balance diagnostics; offline Bayesian posterior and posterior-predictive regression; SHAP TreeExplainer with deterministic fallback; DuckDB read-only acceleration and Arrow/Parquet interchange.",
+        "Agentic Research Mode": "Standalone approval-gated research runner that works without an AI API: local PDF evidence/source indexing, up to 150 research questions per batch, deterministic routing, data audit, descriptive/correlation/OLS/group/PCA/clustering execution, offline discussion/conclusions and a near-submission bundle with DOCX, XLSX, JSON, HTML, 600-dpi/vector graphics and reproducibility manifest. Optional user-key LLM synthesis is post-computation only.",
+        "Outputs": "Exact tables, XLSX/CSV/Parquet, self-contained HTML/JavaScript report, 600-dpi PNG and vector SVG/PDF figures in colour and black-and-white, JSON manifests and near-submission DOCX bundles.",
     }
     guided_dataframe("Methods and capabilities", pd.DataFrame(methods.items(), columns=["family", "capabilities"]))
     st.subheader("Source-to-method evidence catalogue")
@@ -1891,8 +1907,8 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.7.2 documentation library")
-    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.7.2 retains the complete v5.7.1/v5.6.1 stack and adds offline high-detail Greece mapping, richer GAMS-style solver diagnostics and publication map exports inside the GAMS-compatible Studio, while preserving every earlier capability.")
+    st.subheader("Version 5.8.0 documentation library")
+    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.0 is strictly additive over v5.7.2 and adds the Frontier Methods Laboratory plus standalone Agentic Research Mode, while preserving every earlier analytical, GAMS/ITA, mapping, respondent, Research Chair and export capability.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
@@ -1908,6 +1924,7 @@ elif page == "13. Methods & reproducibility":
         ("Expert respondent analytics guide", "EXPERT_RESPONDENT_ANALYTICS_GUIDE_v5_6_1.md", "text/markdown"),
         ("GAMS-compatible ITA Studio guide", "GAMS_COMPATIBLE_ITA_STUDIO_v5_7_0.md", "text/markdown"),
         ("User-key LLM co-pilot guide", "LLM_COPILOT_v5_7_0.md", "text/markdown"),
+        ("Frontier methods + Agentic mode guide", "FRONTIER_AGENTIC_GUIDE_v5_8_0.md", "text/markdown"),
     ]
     available_docs = [(label, BASE / "documentation" / filename, mime) for label, filename, mime in documentation_files if (BASE / "documentation" / filename).exists()]
     for row_start in range(0, len(available_docs), 2):

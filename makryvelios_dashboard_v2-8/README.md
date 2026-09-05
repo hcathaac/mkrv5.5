@@ -1,7 +1,8 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.7.2
+# Makryvelios Research Analytics & Econometrics Command Centre v5.8.0
 
 This is a complete replacement package for the existing Streamlit app. It retains the original R&D data audit, variable dictionary, project/regional modelling, region-year panel, Greece GIS, spatial diagnostics and scenario functions, and adds schema-agnostic multi-file analysis.
 
+Version 5.8.0 is a strictly additive frontier/automation upgrade over v5.7.2. It adds a separate **12C Frontier methods laboratory** (Pareto/robust optimisation, cross-fitted AIPW causal inference, offline Bayesian posterior modelling, SHAP explainability and DuckDB/Arrow/Parquet scaling) plus a standalone **12D Agentic Research Mode**. Agentic mode works without an AI API, can index literature PDFs locally, generate up to 150 research questions per batch, build an approval-gated research plan, execute bounded analytical routines, draft evidence-grounded discussion/conclusions and assemble a near-submission package containing DOCX, XLSX, JSON, interactive HTML and publication graphics. A user-key LLM can optionally refine synthesis after computation; it is never required for the statistical/optimisation engines. No earlier feature is removed.
 
 
 Version 5.7.2 is a strictly additive visual/diagnostic upgrade over v5.7.1. The GAMS-compatible ITA Studio now includes API-key-free Greece maps rendered entirely from bundled Eurostat GISCO NUTS-2/NUTS-3 GeoJSON, fine NUTS-3 border/coastline overlays, GREEN/GRAY/RED ITA maps, allocation/utilisation/project-exposure/score-contribution maps, optional Monte Carlo stability maps, exploratory Moran diagnostics, and 600-dpi PNG plus vector SVG/PDF/interactive HTML export. It also exposes GAMS-style model statistics, HiGHS MIP diagnostics, equation listings, X.l variable listings, scenario-overlap tables, solver messages and .lst-style reproducibility files. No existing function is removed.
@@ -17,6 +18,8 @@ Version 5.6.1 retains the complete v5.6.0 ITA upgrade and adds a separate **12A.
 The respondent module is schema-agnostic and therefore operational before the two papers arrive. It does not assume their findings: the exact respondent identifier, C1-Cn fields and optional subgroup variables are mapped at run time. The resulting empirical distribution can be activated for Hybrid ITA-RW immediately, while the papers' final confirmatory models and interpretations can later be reproduced without rebuilding the interface.
 
 ## Documentation library
+
+Version 5.8.0 adds `FRONTIER_AGENTIC_GUIDE_v5_8_0.md` covering Pareto/robust optimisation, causal AIPW, Bayesian posterior analysis, SHAP explainability, DuckDB/Arrow/Parquet and offline/LLM-assisted Agentic Research Mode.
 
 Version 5.6.1 adds `EXPERT_RESPONDENT_ANALYTICS_GUIDE_v5_6_1.md`, including the data contract, descriptive and inferential outputs, compositional caveats, preference segmentation and empirical ITA bridge.
 
@@ -85,7 +88,7 @@ The full documentation is also downloadable from **Module 13 — Methods & repro
 - A stochastic **R&D portfolio selection** tool, grounded in the supplied Makryvelios research context, that propagates cost/benefit uncertainty and reports project selection probabilities plus downside portfolio distributions.
 - A high-technology visual redesign, an analysis navigator, module-level operating instructions, interpretation warnings and more explicit table/figure downloads.
 
-- Simultaneous upload of multiple `.xlsx`, `.xls`, `.xlsm`, `.csv` and `.tsv` files.
+- Simultaneous upload of multiple `.xlsx`, `.xls`, `.xlsm`, `.csv`, `.tsv`, `.parquet`, `.pq`, `.feather` and `.arrow` files.
 - Reads one or every Excel sheet. Files may be kept separate, appended by column name, or joined on one or more keys.
 - Automatic repair of the supplied R&D workbook's two-row header (the `1–83` index row followed by the real variable names).
 - Up to 1,000 dependent and 1,000 independent variables can be selected. A vectorised SVD engine performs large multi-outcome OLS screens; detailed models then use robust diagnostics.
@@ -143,7 +146,7 @@ Do not join merely on region names if rows have a finer grain. Verify grain and 
 ## Deploy on Streamlit Community Cloud
 
 1. Extract the ZIP.
-2. Create a GitHub repository and upload the contents of `makryvelios_dashboard_v2` to the repository root.
+2. Create a GitHub repository and upload the contents of `makryvelios_dashboard_v2-8` to the repository root.
 3. Commit `app.py`, all `.py` modules (including `mcda.py`), `requirements.txt`, `.streamlit/config.toml`, the two research catalogue CSVs, and (only if appropriate) the `data/` workbook.
 4. In Streamlit Community Cloud, choose **Create app** and select that repository.
 5. Set the main file path to `app.py` and deploy.
@@ -208,4 +211,4 @@ install.packages(c("jsonlite", "sandwich", "lmtest", "MASS"))
 
 ## Updating the GitHub/Streamlit deployment
 
-This ZIP retains the folder name `makryvelios_dashboard_v2` for compatibility, but the software inside is version 5.6.1. Replace the files inside the actual deployed repository folder and retain its existing Streamlit entrypoint path. Streamlit rebuilds automatically after the GitHub commit.
+This package targets the existing deployed folder `makryvelios_dashboard_v2-8`; keep that folder and its Streamlit entrypoint path unchanged. Replace the files inside the actual deployed repository folder and retain its existing Streamlit entrypoint path. Streamlit rebuilds automatically after the GitHub commit.
