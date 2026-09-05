@@ -72,3 +72,10 @@ The application reproduces the model families and provides auditable exports. Nu
 - The built-in presets preserve the supplied SYN2 540-project rounds and the 2,437-project R&D intervention/Monte-Carlo structure. Source discrepancies are preserved and surfaced rather than silently corrected.
 - `llm_bridge.py` provides an optional user-key interpretation layer. API credentials are held only in Streamlit session state and are not written to configuration files or exports. The LLM is not used as the mathematical solver and cannot silently alter portfolio decisions.
 - The default numerical execution remains deterministic/open-source (SciPy/HiGHS). Native GAMS remains an external compatibility/replication route if a licence is available later.
+
+## GAMS-compatible geography and diagnostics — v5.7.2
+
+- The GAMS Studio uses the already bundled `data/greece_nuts2_2024.geojson` and `data/greece_nuts3_2024.geojson`; mapping does not require a map API key or external tile service.
+- Explicit GAMS/NUTS crosswalks are coded only where the source abbreviation is geographically identifiable. In SYN2, `EP2` is documented in the supplied `.gms` source as the EPANEK2 programme budget and is therefore kept outside the geographic map rather than assigned to a Greek region.
+- High-detail publication maps fill NUTS-2 analytical regions and overlay NUTS-3 vector linework for coastline, island and regional-unit detail. Vector SVG/PDF exports retain boundary detail independently of raster DPI.
+- GAMS-style solver/equation/variable listings are generated from the deterministic HiGHS solution. Integer-program shadow prices are not fabricated.

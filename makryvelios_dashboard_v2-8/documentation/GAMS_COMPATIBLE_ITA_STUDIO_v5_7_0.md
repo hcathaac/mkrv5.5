@@ -49,3 +49,14 @@ The supplied `.gms` files are bundled under `reference_gams/vangelis/` and can b
 ## v5.7.1 mapping and exact-replication update
 
 The SYN2 preset now includes the supplied `budget_syn2.prn`, `score_syn2.prn`, `sector_syn2.prn`, `green1_syn2.txt`, `red1_syn2.txt` and `gray1.txt` as an embedded exact-replication input source. The regional mapper never silently assigns one source column to multiple GAMS regions; missing or duplicate mappings are shown explicitly and solving is blocked until they are resolved.
+
+
+## v5.7.2 — Offline high-detail Greece maps and GAMS-style diagnostics
+
+The Studio now contains a **Maps & spatial** tab. Maps are rendered directly from the GeoJSON files bundled in `data/`; no Mapbox, Google Maps, OpenStreetMap tile API or API key is required. NUTS-2 regions carry the analytical fill, while bundled NUTS-3 polygons can be overlaid as fine linework for a much more detailed coastline, island and regional-unit outline.
+
+Available mapped outputs include allocated budget, budget utilisation, selected-project exposure, portfolio-score contribution, GREEN/GRAY/RED shares, dominant ITA class and—after Monte Carlo—mean project selection frequency. ITA categorical output uses GREEN `#16A34A`, GRAY `#6B7280` and RED `#DC2626`. Each selected map can be exported as 600-dpi PNG, vector SVG, vector PDF and self-contained interactive HTML.
+
+The geography is explicit and auditable. In SYN2, `ATT`, `CMK`, `WMK` and `STE` map to verified Greek NUTS-2 regions. `EP2` is labelled in the supplied GAMS source as the EPANEK2 programme budget dimension and is intentionally retained outside the map rather than being assigned to a region without evidence. The 2,437-project GAMS region abbreviations are crosswalked to the 13 Greek NUTS-2 regions.
+
+A separate **GAMS diagnostics** tab exposes model status, MIP gap/dual bound/node count when returned by HiGHS, solve time, model cardinalities, active equations, matrix non-zeros, fixed variables, full inequality equation levels/slacks/binding flags, an `X.l`-style variable listing, raw solver messages and parameter snapshots. The reproducibility package additionally contains `.lst`-style solution text and CSV equation/variable listings. Integer-program shadow prices are not fabricated; constraint slack/binding diagnostics are reported instead.

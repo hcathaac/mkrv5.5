@@ -1,7 +1,12 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.7.0
+# Makryvelios Research Analytics & Econometrics Command Centre v5.7.2
 
 This is a complete replacement package for the existing Streamlit app. It retains the original R&D data audit, variable dictionary, project/regional modelling, region-year panel, Greece GIS, spatial diagnostics and scenario functions, and adds schema-agnostic multi-file analysis.
 
+
+
+Version 5.7.2 is a strictly additive visual/diagnostic upgrade over v5.7.1. The GAMS-compatible ITA Studio now includes API-key-free Greece maps rendered entirely from bundled Eurostat GISCO NUTS-2/NUTS-3 GeoJSON, fine NUTS-3 border/coastline overlays, GREEN/GRAY/RED ITA maps, allocation/utilisation/project-exposure/score-contribution maps, optional Monte Carlo stability maps, exploratory Moran diagnostics, and 600-dpi PNG plus vector SVG/PDF/interactive HTML export. It also exposes GAMS-style model statistics, HiGHS MIP diagnostics, equation listings, X.l variable listings, scenario-overlap tables, solver messages and .lst-style reproducibility files. No existing function is removed.
+
+Version 5.7.1 is a strictly additive maintenance upgrade over v5.7.0. It fixes regional budget auto-mapping, embeds the supplied SYN2 540 raw GAMS input tables for one-click exact replication, and strengthens dark-theme caption contrast. No capability is removed.
 
 Version 5.7.0 is a strictly additive upgrade over v5.6.1. It adds a separate **12A.1B GAMS-compatible ITA Studio** that keeps Evangelos Makryvelios' GAMS algebraic logic visible while executing the equivalent binary MIP with SciPy/HiGHS. It includes the original SYN2 540 and R&D 2437 presets, regional/sector/intervention constraints, GREEN/RED `X.fx` logic, effective-budget rules, Monte Carlo, original `.gms` source viewing, `.gms/.prn` exports and reproducibility packages.
 

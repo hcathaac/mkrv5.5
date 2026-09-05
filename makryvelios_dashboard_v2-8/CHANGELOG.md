@@ -1,3 +1,18 @@
+# v5.7.2 — 2026-09-05
+
+- Added a dedicated **Maps & spatial** tab inside 12A.1B GAMS-compatible ITA Studio.
+- Added fully offline/API-key-free Greece rendering from bundled NUTS-2/NUTS-3 GeoJSON; no Mapbox/Google/OSM tiles are required.
+- Added fine NUTS-3 boundary and coastline/island overlays while preserving NUTS-2 analytical fills.
+- Added maps for allocation, budget utilisation, selected-project exposure, portfolio-score contribution, GREEN/GRAY/RED shares, dominant ITA class and Monte Carlo mean selection frequency when available.
+- Added requested ITA colour semantics: GREEN #16A34A, GRAY #6B7280, RED #DC2626.
+- Added publication exports: 600-dpi PNG, vector SVG, vector PDF and self-contained interactive HTML.
+- Added explicit GAMS-region → NUTS-2 crosswalk. SYN2 `EP2` is preserved as the non-geographic EPANEK2 programme budget dimension and is never painted onto a Greek region.
+- Added optional Moran's I/local spatial diagnostics for mapped continuous outputs.
+- Added **GAMS diagnostics** tab with model/solver status, MIP node count, dual bound/gap where exposed by HiGHS, model size, active constraints, fixed variables, equation listing, X.l variable listing, source parameters and raw solver message.
+- Added scenario-overlap/Jaccard and different-decision tables plus portfolio-score comparison plot.
+- Extended reproducibility ZIP with solver diagnostics JSON, solver message, GAMS-style equation/variable listings and `.lst`-style text listing.
+- No previous v5.7.1/v5.7.0/v5.6.1/v5.5.3 capability was removed or renamed.
+
 # v5.7.1 — 2026-09-05
 
 - Fixed GAMS regional auto-mapping so multiple regions are never silently assigned to the same numeric source column.

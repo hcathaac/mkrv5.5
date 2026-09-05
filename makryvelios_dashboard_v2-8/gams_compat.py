@@ -12,6 +12,7 @@ import json
 import math
 import re
 import zipfile
+import time
 from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
@@ -135,6 +136,7 @@ class GAMSRunResult:
     solver_message: str
     solver_status_code: int
     settings: dict
+    solver_diagnostics: dict = field(default_factory=dict)
 
 
 def preset_definition(name: str) -> dict:
@@ -377,11 +379,14 @@ def solve_gams_compatible(
             lb[i] = ub[i] = 0.0
 
     constraints = None
+    matrix = None
     if rows:
         matrix = csr_matrix(np.vstack(rows))
         constraints = LinearConstraint(matrix, np.asarray(lower, float), np.asarray(upper, float))
     options = {"disp": False, "mip_rel_gap": max(0.0, float(mip_rel_gap))}
+    solve_started = time.perf_counter()
     result = milp(c=-utility, integrality=np.ones(n), bounds=Bounds(lb, ub), constraints=constraints, options=options)
+    solve_seconds = float(time.perf_counter() - solve_started)
     status_map = {0: "OPTIMAL", 1: "LIMIT_REACHED", 2: "INFEASIBLE", 3: "UNBOUNDED", 4: "ERROR"}
     status = status_map.get(int(result.status), "ERROR")
     selected = np.zeros(n, dtype=int)
@@ -424,6 +429,24 @@ def solve_gams_compatible(
             used = float(np.asarray(row) @ selected)
             diagnostics.append({"constraint": name, "used": used, "cap": float(cap), "slack": float(cap - used), "utilisation": used / cap if cap else np.nan, "binding": bool(abs(cap - used) <= max(1.0, abs(cap) * 1e-7))})
     diag = pd.DataFrame(diagnostics)
+    solver_diagnostics = {
+        "success": bool(getattr(result, "success", False)),
+        "solve_seconds": solve_seconds,
+        "mip_node_count": getattr(result, "mip_node_count", None),
+        "mip_dual_bound": getattr(result, "mip_dual_bound", None),
+        "mip_gap": getattr(result, "mip_gap", None),
+        "raw_objective_minimisation": getattr(result, "fun", None),
+        "binary_variables": int(n),
+        "active_constraints": int(len(rows)),
+        "constraint_nonzeros": int(matrix.nnz) if matrix is not None else 0,
+        "fixed_variables": int(np.sum(lb == ub)),
+        "fixed_to_one": int(np.sum((lb == ub) & (lb == 1.0))),
+        "fixed_to_zero": int(np.sum((lb == ub) & (lb == 0.0))),
+        "regional_constraints": int(sum(name.startswith("region:") for name in names)),
+        "region_group_constraints": int(sum(name.startswith("region_group:") for name in names)),
+        "sector_constraints": int(sum(name.startswith("sector:") for name in names)),
+        "intervention_constraints": int(sum(name.startswith("intervention:") for name in names)),
+    }
     settings = {
         "solver": "SciPy/HiGHS MILP",
         "gams_compatible": True,
@@ -446,6 +469,7 @@ def solve_gams_compatible(
         region_allocation=region_allocation, sector_allocation=sector_allocation,
         intervention_allocation=intervention_allocation, constraint_diagnostics=diag,
         solver_message=str(result.message), solver_status_code=int(result.status), settings=settings,
+        solver_diagnostics=solver_diagnostics,
     )
 
 
@@ -719,6 +743,28 @@ def gams_reproducibility_bundle(
             archive.writestr("sector_allocation.csv", run.sector_allocation.to_csv(index=False).encode("utf-8-sig"))
             archive.writestr("intervention_allocation.csv", run.intervention_allocation.to_csv(index=False).encode("utf-8-sig"))
             archive.writestr("constraint_diagnostics.csv", run.constraint_diagnostics.to_csv(index=False).encode("utf-8-sig"))
+            archive.writestr("solver_diagnostics.json", json.dumps(run.solver_diagnostics, indent=2, ensure_ascii=False, default=str).encode("utf-8"))
+            archive.writestr("solver_message.txt", (run.solver_message + "\n").encode("utf-8"))
+            variable_cols = [c for c in ["project_id", "selected", "decision", "weighted_score", "effective_budget", "allocated_budget", "ita_status"] if c in run.project_results.columns]
+            variable_listing = run.project_results[variable_cols].copy()
+            if "selected" in variable_listing.columns:
+                variable_listing = variable_listing.rename(columns={"selected": "X.l"})
+            archive.writestr("gams_style_variable_listing.csv", variable_listing.to_csv(index=False).encode("utf-8-sig"))
+            equation_listing = run.constraint_diagnostics.copy()
+            if not equation_listing.empty:
+                equation_listing = equation_listing.rename(columns={"constraint": "equation", "used": "level", "cap": "upper_bound"})
+            archive.writestr("gams_style_equation_listing.csv", equation_listing.to_csv(index=False).encode("utf-8-sig"))
+            listing_text = [
+                "GAMS-COMPATIBLE SOLUTION LISTING",
+                f"MODEL STATUS: {run.status}",
+                f"OBJECTIVE (PORTFSCORE): {run.objective:.12g}",
+                f"SOLVER: {run.settings.get('solver', 'SciPy/HiGHS MILP')}",
+                f"MESSAGE: {run.solver_message}",
+                "",
+                "SOLVER DIAGNOSTICS",
+            ]
+            listing_text.extend(f"{k}: {v}" for k, v in run.solver_diagnostics.items())
+            archive.writestr("solution_listing.lst.txt", ("\n".join(listing_text) + "\n").encode("utf-8"))
         if monte_carlo_projects is not None:
             archive.writestr("monte_carlo_project_frequency.csv", monte_carlo_projects.to_csv(index=False).encode("utf-8-sig"))
         if monte_carlo_draws is not None:

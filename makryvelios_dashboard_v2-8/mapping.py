@@ -10,6 +10,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 from matplotlib import pyplot as plt
 from matplotlib.collections import PatchCollection
@@ -225,3 +226,254 @@ def map_commentary(global_table: pd.DataFrame, local: pd.DataFrame, metric: str)
             comments.append(f"Significant {cluster} pattern: {names}.")
     comments.append("Spatial diagnostics are exploratory and depend on the neighbourhood definition; Greek islands justify KNN weights, with contiguity/custom weights advisable as a robustness check.")
     return comments
+
+
+# Explicit GAMS-to-Greek-NUTS geography used by the visible ITA/GAMS Studio.
+# EP2 in the SYN2 source is "EPANEK2" (a programme budget dimension), not a region,
+# and is therefore deliberately left unmapped rather than painted onto Greece.
+GAMS_REGION_TO_NUTS2 = {
+    "ATT": "EL30",  # Attica
+    "NAG": "EL41",  # North Aegean
+    "SAG": "EL42",  # South Aegean
+    "CRE": "EL43",  # Crete
+    "EMK": "EL51",  # Eastern Macedonia and Thrace
+    "CMK": "EL52",  # Central Macedonia
+    "WMK": "EL53",  # Western Macedonia
+    "EPI": "EL54",  # Epirus
+    "THE": "EL61",  # Thessaly
+    "ION": "EL62",  # Ionian Islands
+    "WGR": "EL63",  # Western Greece
+    "STE": "EL64",  # Central Greece / Sterea
+    "PEL": "EL65",  # Peloponnese
+}
+NON_GEOGRAPHIC_GAMS_DIMENSIONS = {
+    "EP2": "EPANEK2 programme budget dimension (not a geographic NUTS region)",
+}
+
+
+def gams_region_crosswalk(regions: Sequence[str]) -> pd.DataFrame:
+    """Return an explicit, auditable GAMS-region to NUTS-2 crosswalk."""
+    region_meta = REGIONS.set_index("nuts_id").to_dict("index")
+    rows = []
+    for region in regions:
+        code = str(region).strip().upper()
+        nuts = GAMS_REGION_TO_NUTS2.get(code)
+        meta = region_meta.get(nuts, {}) if nuts else {}
+        rows.append({
+            "gams_region": code,
+            "nuts_id": nuts,
+            "region_el": meta.get("region_el"),
+            "region_en": meta.get("region_en"),
+            "map_status": "MAPPED" if nuts else "NON-GEOGRAPHIC / UNMAPPED",
+            "note": NON_GEOGRAPHIC_GAMS_DIMENSIONS.get(code, "" if nuts else "No verified NUTS-2 crosswalk supplied."),
+        })
+    return pd.DataFrame(rows)
+
+
+def _metric_colour(value: float, vmin: float, vmax: float, monochrome: bool = False) -> str:
+    if not np.isfinite(value):
+        return "#D1D5DB"
+    if vmax <= vmin:
+        pos = 0.65
+    else:
+        pos = float(np.clip((value - vmin) / (vmax - vmin), 0.0, 1.0))
+    cmap = plt.get_cmap("Greys" if monochrome else "Blues")
+    rgba = cmap(0.15 + 0.80 * pos)
+    return "#%02X%02X%02X" % tuple(int(round(255 * c)) for c in rgba[:3])
+
+
+def detailed_offline_map_figure(
+    data: pd.DataFrame,
+    metric: str,
+    *,
+    nuts2_geojson: dict,
+    nuts3_geojson: dict | None = None,
+    title: str | None = None,
+    monochrome: bool = False,
+    categorical: bool = False,
+    category_colours: Mapping[str, str] | None = None,
+    show_nuts3: bool = True,
+):
+    """API-key-free interactive Greece map rendered only from bundled GeoJSON polygons.
+
+    No Mapbox/OSM/Google tile service is contacted.  NUTS-3 boundaries can be overlaid
+    as fine internal linework while values are filled at NUTS-2 level.
+    """
+    if "nuts_id" not in data.columns:
+        raise ValueError("Map data must contain nuts_id.")
+    values = data.set_index("nuts_id")
+    fig = go.Figure()
+    category_colours = category_colours or {
+        "GREEN": "#16A34A", "GRAY": "#6B7280", "GREY": "#6B7280",
+        "RED": "#DC2626", "UNCLASSIFIED": "#64748B",
+    }
+    numeric_values = pd.to_numeric(data[metric], errors="coerce") if not categorical else pd.Series(dtype=float)
+    finite = numeric_values[np.isfinite(numeric_values)].to_numpy(float) if not categorical else np.array([])
+    vmin = float(finite.min()) if finite.size else 0.0
+    vmax = float(finite.max()) if finite.size else 1.0
+
+    observed_categories = []
+    for feature in nuts2_geojson.get("features", []):
+        props = feature.get("properties", {})
+        nuts = str(props.get("NUTS_ID") or props.get("id") or "")
+        if not nuts.startswith("EL"):
+            continue
+        if nuts in values.index:
+            row = values.loc[nuts]
+            if isinstance(row, pd.DataFrame):
+                row = row.iloc[0]
+            value = row.get(metric, np.nan)
+            region_name = row.get("region_el", row.get("region_en", nuts))
+        else:
+            value = np.nan if not categorical else "UNCLASSIFIED"
+            region_name = props.get("NAME_LATN") or nuts
+        if categorical:
+            category = str(value).upper() if pd.notna(value) else "UNCLASSIFIED"
+            colour = category_colours.get(category, "#CBD5E1")
+            observed_categories.append(category)
+            value_text = category
+        else:
+            val = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+            colour = _metric_colour(float(val) if pd.notna(val) else np.nan, vmin, vmax, monochrome)
+            value_text = "No mapped value" if pd.isna(val) else f"{float(val):,.4g}"
+        for poly in _geometry_polygons(feature.get("geometry", {})):
+            if len(poly) < 3:
+                continue
+            fig.add_trace(go.Scatter(
+                x=poly[:, 0], y=poly[:, 1], mode="lines", fill="toself",
+                fillcolor=colour, line=dict(color="#111827", width=1.15),
+                name=str(region_name), showlegend=False,
+                hovertemplate=f"<b>{region_name}</b><br>NUTS-2: {nuts}<br>{metric}: {value_text}<extra></extra>",
+            ))
+
+    if show_nuts3 and nuts3_geojson:
+        for feature in nuts3_geojson.get("features", []):
+            props = feature.get("properties", {})
+            nuts = str(props.get("NUTS_ID") or props.get("id") or "")
+            if not nuts.startswith("EL"):
+                continue
+            for poly in _geometry_polygons(feature.get("geometry", {})):
+                if len(poly) < 3:
+                    continue
+                fig.add_trace(go.Scatter(
+                    x=poly[:, 0], y=poly[:, 1], mode="lines",
+                    line=dict(color="rgba(15,23,42,0.42)", width=0.55),
+                    hoverinfo="skip", showlegend=False,
+                ))
+
+    if categorical:
+        for cat in ["GREEN", "GRAY", "RED", "UNCLASSIFIED"]:
+            if cat in set(observed_categories):
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None], mode="markers",
+                    marker=dict(size=11, color=category_colours.get(cat, "#CBD5E1")),
+                    name=cat, showlegend=True, hoverinfo="skip",
+                ))
+    elif finite.size:
+        # Invisible marker trace provides an accurate continuous legend without external map tiles.
+        fig.add_trace(go.Scatter(
+            x=[18.55, 18.55], y=[34.55, 34.55], mode="markers",
+            marker=dict(
+                size=0.1, opacity=0.01, color=[vmin, vmax], cmin=vmin, cmax=vmax,
+                colorscale="Greys" if monochrome else "Blues", showscale=True,
+                colorbar=dict(title=metric, thickness=14, len=0.65),
+            ),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    fig.update_layout(
+        title=title or f"Greece · {metric}",
+        height=800,
+        margin=dict(l=10, r=10, t=58, b=10),
+        paper_bgcolor="#0B1F33", plot_bgcolor="#0B1F33",
+        font=dict(color="#F8FAFC", size=13),
+        legend=dict(bgcolor="rgba(8,21,33,.86)", font=dict(color="#F8FAFC")),
+    )
+    fig.update_xaxes(range=[18.3, 30.4], visible=False, constrain="domain")
+    fig.update_yaxes(range=[34.3, 42.25], visible=False, scaleanchor="x", scaleratio=1)
+    return fig
+
+
+def detailed_static_map_bytes(
+    data: pd.DataFrame,
+    metric: str,
+    *,
+    nuts2_geojson: dict,
+    nuts3_geojson: dict | None = None,
+    title: str | None = None,
+    monochrome: bool = False,
+    categorical: bool = False,
+    category_colours: Mapping[str, str] | None = None,
+    show_nuts3: bool = True,
+    fmt: str = "png",
+    dpi: int = 600,
+) -> bytes:
+    """Publication export using only bundled vector boundaries.
+
+    SVG/PDF remain vector at arbitrary zoom; PNG defaults to 600 dpi.  NUTS-3
+    linework is overlaid to retain coastline/island and internal-border detail.
+    """
+    if "nuts_id" not in data.columns:
+        raise ValueError("Map data must contain nuts_id.")
+    values = data.set_index("nuts_id")
+    category_colours = category_colours or {
+        "GREEN": "#16A34A", "GRAY": "#6B7280", "GREY": "#6B7280",
+        "RED": "#DC2626", "UNCLASSIFIED": "#64748B",
+    }
+    numeric_values = pd.to_numeric(data[metric], errors="coerce") if not categorical else pd.Series(dtype=float)
+    finite = numeric_values[np.isfinite(numeric_values)].to_numpy(float) if not categorical else np.array([])
+    vmin = float(finite.min()) if finite.size else 0.0
+    vmax = float(finite.max()) if finite.size else 1.0
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.get_cmap("Greys" if monochrome else "Blues")
+
+    fig, ax = plt.subplots(figsize=(9.2, 9.2), constrained_layout=True)
+    for feature in nuts2_geojson.get("features", []):
+        props = feature.get("properties", {})
+        nuts = str(props.get("NUTS_ID") or props.get("id") or "")
+        if not nuts.startswith("EL"):
+            continue
+        if nuts in values.index:
+            row = values.loc[nuts]
+            if isinstance(row, pd.DataFrame):
+                row = row.iloc[0]
+            value = row.get(metric, np.nan)
+        else:
+            value = np.nan if not categorical else "UNCLASSIFIED"
+        if categorical:
+            face = category_colours.get(str(value).upper(), "#D1D5DB")
+        else:
+            val = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+            face = cmap(norm(float(val))) if pd.notna(val) else (.86, .88, .90, 1)
+        for poly in _geometry_polygons(feature.get("geometry", {})):
+            if len(poly) >= 3:
+                ax.add_patch(Polygon(poly, closed=True, facecolor=face, edgecolor="#111827", linewidth=0.72, zorder=2))
+
+    if show_nuts3 and nuts3_geojson:
+        for feature in nuts3_geojson.get("features", []):
+            props = feature.get("properties", {})
+            nuts = str(props.get("NUTS_ID") or props.get("id") or "")
+            if not nuts.startswith("EL"):
+                continue
+            for poly in _geometry_polygons(feature.get("geometry", {})):
+                if len(poly) >= 3:
+                    ax.add_patch(Polygon(poly, closed=True, facecolor="none", edgecolor="#334155", linewidth=0.22, alpha=0.72, zorder=3))
+
+    ax.set_xlim(18.3, 30.4); ax.set_ylim(34.3, 42.25); ax.set_aspect("equal"); ax.axis("off")
+    ax.set_title(title or f"Greece · {metric}", loc="left", fontsize=16, fontweight="bold", pad=12)
+    if categorical:
+        import matplotlib.patches as mpatches
+        handles = [mpatches.Patch(color=category_colours[k], label=k) for k in ["GREEN", "GRAY", "RED", "UNCLASSIFIED"]]
+        ax.legend(handles=handles, loc="lower left", frameon=False, fontsize=9)
+    elif finite.size:
+        scalar = plt.cm.ScalarMappable(norm=norm, cmap=cmap); scalar.set_array([])
+        cbar = fig.colorbar(scalar, ax=ax, orientation="horizontal", fraction=.035, pad=.018)
+        cbar.ax.tick_params(labelsize=8)
+        cbar.set_label(metric, fontsize=9)
+    ax.text(18.38, 34.36, "Offline boundaries: bundled Eurostat GISCO NUTS 2024 · NUTS-3 detail overlay · no API key / map tiles", fontsize=7.2, color="#334155")
+    out = io.BytesIO()
+    fig.savefig(out, format=fmt, dpi=dpi if fmt.lower() == "png" else None, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out.getvalue()

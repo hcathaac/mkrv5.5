@@ -27,6 +27,14 @@ from gams_compat import (
     solve_weight_matrix,
 )
 from llm_bridge import configured as llm_configured, llm_reply, summarise_ita_for_llm
+from mapping import (
+    REGIONS,
+    detailed_offline_map_figure,
+    detailed_static_map_bytes,
+    fetch_geojson,
+    gams_region_crosswalk,
+    moran_diagnostics,
+)
 
 
 BASE = Path(__file__).resolve().parent
@@ -302,6 +310,213 @@ def _coloured_excel(projects: pd.DataFrame, tables: dict[str, pd.DataFrame]) -> 
     return output.getvalue()
 
 
+
+
+def _gams_spatial_frame(model, run) -> pd.DataFrame:
+    """Create auditable NUTS-2 metrics from GAMS regional budget dimensions."""
+    crosswalk = gams_region_crosswalk(list(model.region_budget_columns))
+    base = run.region_allocation.copy()
+    if base.empty:
+        return crosswalk
+    base["region"] = base["region"].astype(str).str.upper()
+    out = crosswalk.merge(base, left_on="gams_region", right_on="region", how="left")
+    projects = run.project_results.copy()
+    selected = pd.to_numeric(projects.get("selected", 0), errors="coerce").fillna(0).to_numpy(float)
+    weighted = pd.to_numeric(projects.get("weighted_score", 0), errors="coerce").fillna(0).to_numpy(float)
+    effective_total = pd.to_numeric(projects.get("effective_budget", 0), errors="coerce").fillna(0).to_numpy(float)
+    mc = st.session_state.get("gams_mc_projects")
+    mc_freq = None
+    if isinstance(mc, pd.DataFrame) and {"project_id", "selection_frequency"}.issubset(mc.columns):
+        mc_map = mc.set_index(mc.project_id.astype(str))["selection_frequency"].to_dict()
+        mc_freq = projects.project_id.astype(str).map(mc_map).to_numpy(float)
+
+    rows = []
+    for _, row in out.iterrows():
+        region = str(row.get("gams_region", ""))
+        internal = model.region_budget_columns.get(region)
+        record = row.to_dict()
+        if internal and internal in projects.columns:
+            region_budget = pd.to_numeric(projects[internal], errors="coerce").fillna(0).to_numpy(float)
+            exposed = region_budget > 0
+            record["selected_project_exposure"] = int(np.sum(exposed & (selected >= 0.5)))
+            shares = np.divide(region_budget, effective_total, out=np.zeros_like(region_budget, dtype=float), where=effective_total > 0)
+            record["portfolio_score_contribution"] = float(np.sum(weighted * selected * shares))
+            status = projects.get("ita_status", pd.Series("UNCLASSIFIED", index=projects.index)).astype(str).str.upper().replace({"GREY": "GRAY"})
+            classified = exposed & status.isin(["GREEN", "GRAY", "RED"]).to_numpy()
+            denom = int(classified.sum())
+            counts = {k: int(np.sum(exposed & status.eq(k).to_numpy())) for k in ["GREEN", "GRAY", "RED"]}
+            for k in ["GREEN", "GRAY", "RED"]:
+                record[f"{k.lower()}_share"] = counts[k] / denom if denom else np.nan
+            if sum(counts.values()):
+                record["dominant_ita_class"] = max(["GREEN", "GRAY", "RED"], key=lambda k: counts[k])
+            else:
+                record["dominant_ita_class"] = "UNCLASSIFIED"
+            if mc_freq is not None and exposed.any():
+                vals = mc_freq[exposed]
+                record["monte_carlo_mean_selection_frequency"] = float(np.nanmean(vals)) if np.isfinite(vals).any() else np.nan
+        rows.append(record)
+    spatial = pd.DataFrame(rows)
+    meta = REGIONS[["nuts_id", "lat", "lon"]]
+    spatial = spatial.merge(meta, on="nuts_id", how="left")
+    return spatial
+
+
+def _scenario_overlap(selection_matrix: pd.DataFrame) -> pd.DataFrame:
+    if selection_matrix.empty or "project_id" not in selection_matrix.columns:
+        return pd.DataFrame()
+    scenarios = [c for c in selection_matrix.columns if c not in {"project_id", "ITA classification"}]
+    rows = []
+    for i, a in enumerate(scenarios):
+        av = selection_matrix[a].astype(int).to_numpy()
+        for b in scenarios[i + 1:]:
+            bv = selection_matrix[b].astype(int).to_numpy()
+            inter = int(np.sum((av == 1) & (bv == 1)))
+            union = int(np.sum((av == 1) | (bv == 1)))
+            rows.append({"scenario_a": a, "scenario_b": b, "selected_in_both": inter, "selected_in_either": union, "jaccard_overlap": inter / union if union else 1.0, "different_decisions": int(np.sum(av != bv))})
+    return pd.DataFrame(rows)
+
+
+def _render_gams_maps(model, run) -> None:
+    st.markdown("#### Greece maps · offline / no API key")
+    st.caption("The map uses the GeoJSON boundary files bundled with the application. It does not use Mapbox, Google Maps, OpenStreetMap tiles or an API key. NUTS-3 linework can be overlaid for fine coastline/island and internal-border detail.")
+    spatial = _gams_spatial_frame(model, run)
+    if spatial.empty:
+        st.info("No regional GAMS budget dimensions are available for mapping.")
+        return
+    mapped = spatial.dropna(subset=["nuts_id"]).copy()
+    non_geo = spatial[spatial["nuts_id"].isna()][[c for c in ["gams_region", "allocated_budget", "cap", "note"] if c in spatial.columns]]
+    if not non_geo.empty:
+        st.warning("Some GAMS budget dimensions are deliberately not painted onto Greece because they are not verified geographic NUTS regions. They remain visible below as non-geographic dimensions.")
+        st.dataframe(non_geo, width="stretch", hide_index=True)
+    if mapped.empty:
+        st.info("No verified GAMS-to-NUTS crosswalk is available for this run.")
+        return
+
+    try:
+        nuts2 = fetch_geojson("NUTS 2 – Regions (13)")
+        nuts3 = fetch_geojson("NUTS 3 – Regional units")
+    except Exception as exc:
+        st.error(f"Bundled Greece boundary files could not be loaded: {exc}")
+        return
+
+    metric_options = {
+        "Allocated budget": ("allocated_budget", False),
+        "Budget utilisation": ("utilisation", False),
+        "Selected-project exposure": ("selected_project_exposure", False),
+        "Portfolio-score contribution": ("portfolio_score_contribution", False),
+        "GREEN share": ("green_share", False),
+        "GRAY share": ("gray_share", False),
+        "RED share": ("red_share", False),
+        "Dominant ITA class": ("dominant_ita_class", True),
+    }
+    if "monte_carlo_mean_selection_frequency" in mapped.columns:
+        metric_options["Monte Carlo mean selection frequency"] = ("monte_carlo_mean_selection_frequency", False)
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        label = st.selectbox("Map output", list(metric_options), key="gams_map_metric")
+    with c2:
+        show_nuts3 = st.checkbox("Detailed NUTS-3 borders", value=True, key="gams_map_nuts3")
+    with c3:
+        monochrome = st.checkbox("Monochrome publication view", value=False, key="gams_map_mono")
+    metric, categorical = metric_options[label]
+    if metric not in mapped.columns:
+        st.info(f"{label} is not available for this run.")
+        return
+    category_colours = {"GREEN": "#16A34A", "GRAY": "#6B7280", "RED": "#DC2626", "UNCLASSIFIED": "#64748B"}
+    fig = detailed_offline_map_figure(
+        mapped, metric, nuts2_geojson=nuts2, nuts3_geojson=nuts3,
+        title=f"Greece · {label}", monochrome=monochrome, categorical=categorical,
+        category_colours=category_colours, show_nuts3=show_nuts3,
+    )
+    st.plotly_chart(fig, width="stretch")
+    st.caption("BLACK OUTLINE = NUTS-2 region; fine internal outline = bundled NUTS-3 regional-unit boundary. GREEN / GRAY / RED use the ITA colours requested for categorical output.")
+
+    e1, e2, e3, e4 = st.columns(4)
+    png = detailed_static_map_bytes(mapped, metric, nuts2_geojson=nuts2, nuts3_geojson=nuts3, title=f"Greece · {label}", monochrome=monochrome, categorical=categorical, category_colours=category_colours, show_nuts3=show_nuts3, fmt="png", dpi=600)
+    svg = detailed_static_map_bytes(mapped, metric, nuts2_geojson=nuts2, nuts3_geojson=nuts3, title=f"Greece · {label}", monochrome=monochrome, categorical=categorical, category_colours=category_colours, show_nuts3=show_nuts3, fmt="svg", dpi=600)
+    pdf = detailed_static_map_bytes(mapped, metric, nuts2_geojson=nuts2, nuts3_geojson=nuts3, title=f"Greece · {label}", monochrome=monochrome, categorical=categorical, category_colours=category_colours, show_nuts3=show_nuts3, fmt="pdf", dpi=600)
+    html = fig.to_html(full_html=True, include_plotlyjs=True).encode("utf-8")
+    stem = re.sub(r"[^A-Za-z0-9]+", "_", label).strip("_").lower()
+    with e1:
+        st.download_button("600-dpi PNG", png, f"greece_{stem}_600dpi.png", "image/png", key=f"gams_map_png_{stem}")
+    with e2:
+        st.download_button("Vector SVG", svg, f"greece_{stem}.svg", "image/svg+xml", key=f"gams_map_svg_{stem}")
+    with e3:
+        st.download_button("Vector PDF", pdf, f"greece_{stem}.pdf", "application/pdf", key=f"gams_map_pdf_{stem}")
+    with e4:
+        st.download_button("Interactive HTML", html, f"greece_{stem}.html", "text/html", key=f"gams_map_html_{stem}")
+
+    st.markdown("##### Verified geography crosswalk")
+    show_cols = [c for c in ["gams_region", "nuts_id", "region_el", "region_en", "map_status", "allocated_budget", "cap", "utilisation", "selected_project_exposure", "portfolio_score_contribution", "dominant_ita_class"] if c in spatial.columns]
+    st.dataframe(spatial[show_cols], width="stretch", hide_index=True)
+
+    if not categorical and mapped[metric].notna().sum() >= 4 and mapped[metric].nunique(dropna=True) > 1:
+        with st.expander("Spatial diagnostics (exploratory Moran's I)", expanded=False):
+            try:
+                global_table, local = moran_diagnostics(mapped, metric, permutations=999, k=min(3, len(mapped) - 1))
+                st.dataframe(global_table, width="stretch", hide_index=True)
+                st.dataframe(local, width="stretch", hide_index=True)
+            except Exception as exc:
+                st.info(f"Spatial diagnostic unavailable for this metric: {exc}")
+
+
+def _render_gams_diagnostics(model, run) -> None:
+    st.markdown("#### Solver / GAMS-style diagnostics")
+    d = dict(getattr(run, "solver_diagnostics", {}) or {})
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Model status", run.status)
+    k2.metric("Binary variables", f"{int(d.get('binary_variables', len(run.project_results))):,}")
+    k3.metric("Equations / constraints", f"{int(d.get('active_constraints', len(run.constraint_diagnostics))):,}")
+    gap = d.get("mip_gap")
+    k4.metric("MIP gap", "—" if gap is None or not np.isfinite(gap) else f"{float(gap):.5%}")
+    k5.metric("Solve time", f"{float(d.get('solve_seconds', 0.0)):.3f} s")
+    st.caption("These are the HiGHS execution diagnostics for the GAMS-compatible algebraic formulation. They are shown explicitly rather than hidden behind the UI.")
+
+    diag_rows = []
+    for key in ["mip_node_count", "mip_dual_bound", "mip_gap", "constraint_nonzeros", "fixed_variables", "fixed_to_one", "fixed_to_zero", "regional_constraints", "region_group_constraints", "sector_constraints", "intervention_constraints", "success"]:
+        diag_rows.append({"diagnostic": key, "value": d.get(key)})
+    st.dataframe(pd.DataFrame(diag_rows), width="stretch", hide_index=True)
+    st.code(run.solver_message, language="text")
+
+    st.markdown("##### Equation listing")
+    eq = run.constraint_diagnostics.copy()
+    if not eq.empty:
+        eq = eq.rename(columns={"constraint": "equation", "used": "level", "cap": "upper_bound", "slack": "slack", "binding": "binding"})
+        eq["equation_status"] = np.where(eq["binding"], "BINDING", "SLACK")
+        st.dataframe(eq, width="stretch", hide_index=True)
+        st.download_button("Download equation listing", eq.to_csv(index=False).encode("utf-8-sig"), "gams_equation_listing.csv", "text/csv", key="gams_eq_listing")
+    else:
+        st.info("No active inequality equations are configured for this run.")
+
+    st.markdown("##### Variable listing · X.l")
+    cols = [c for c in ["project_id", "selected", "decision", "weighted_score", "effective_budget", "allocated_budget", "ita_status"] if c in run.project_results.columns]
+    variables = run.project_results[cols].copy()
+    variables = variables.rename(columns={"selected": "X.l"})
+    st.dataframe(_styled_projects(variables), width="stretch", hide_index=True, height=520)
+    st.download_button("Download variable listing", variables.to_csv(index=False).encode("utf-8-sig"), "gams_variable_listing_X_l.csv", "text/csv", key="gams_var_listing")
+
+    st.markdown("##### Sets and parameter snapshot")
+    set_table = pd.DataFrame([
+        {"GAMS object": "p", "meaning": "projects", "cardinality": len(model.projects)},
+        {"GAMS object": "crit", "meaning": "criteria", "cardinality": len(model.criteria)},
+        {"GAMS object": "rg", "meaning": "regional/programme budget dimensions", "cardinality": len(model.region_budget_columns)},
+        {"GAMS object": "sec", "meaning": "sectors", "cardinality": int(model.projects.sector.nunique()) if model.sector_column else 0},
+        {"GAMS object": "intv", "meaning": "interventions", "cardinality": int(model.projects.intervention.nunique()) if model.intervention_column else 0},
+    ])
+    st.dataframe(set_table, width="stretch", hide_index=True)
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        st.markdown("**Regional caps**")
+        st.json(model.region_caps)
+    with p2:
+        st.markdown("**Sector caps**")
+        st.json(model.sector_caps)
+    with p3:
+        st.markdown("**Intervention caps**")
+        st.json(model.intervention_caps)
+    st.info("GAMS-style marginal/shadow-price values are not reported for the integer MIP solution because integer-program marginals are not equivalent to LP shadow prices. The application therefore reports exact slack/binding diagnostics instead of inventing marginals.")
+
+
 def _active_llm_config() -> dict:
     return st.session_state.get("llm_config", {})
 
@@ -527,7 +742,7 @@ def render_gams_studio(df: pd.DataFrame) -> None:
     else:
         active_weights = st.session_state.get("gams_weight_vector")
 
-    tabs = st.tabs(["Overview", "Project matrix", "Constraints & allocations", "GAMS model", "Monte Carlo", "LLM co-pilot", "Original source GAMS"])
+    tabs = st.tabs(["Overview", "Project matrix", "Maps & spatial", "Constraints & allocations", "GAMS diagnostics", "GAMS model", "Monte Carlo", "LLM co-pilot", "Original source GAMS"])
     with tabs[0]:
         summary = st.session_state.get("gams_run_summary", pd.DataFrame())
         st.dataframe(summary, width="stretch", hide_index=True)
@@ -546,6 +761,13 @@ def render_gams_studio(df: pd.DataFrame) -> None:
         if not selection_matrix.empty:
             st.markdown("##### Trichotomy across the original individual-decision-maker optimisations")
             st.dataframe(_styled_projects(selection_matrix), width="stretch", hide_index=True)
+            overlap = _scenario_overlap(selection_matrix)
+            if not overlap.empty:
+                st.markdown("##### Scenario overlap / decision differences")
+                st.dataframe(overlap, width="stretch", hide_index=True)
+        if len(summary) > 1:
+            fig = px.bar(summary, x="scenario", y="portfolio_score", color="selected_projects", title="Portfolio score across solved GAMS weighting scenarios")
+            st.plotly_chart(fig, width="stretch")
 
     with tabs[1]:
         display_cols = [c for c in ["project_id", *model.criteria, "sector", "intervention", "ita_status", "weighted_score", "effective_budget", "selected", "decision"] if c in run.project_results]
@@ -556,6 +778,9 @@ def render_gams_studio(df: pd.DataFrame) -> None:
         st.download_button("Download ITA-coloured Excel", excel, "gams_compatible_ita_results.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="gams_coloured_excel")
 
     with tabs[2]:
+        _render_gams_maps(model, run)
+
+    with tabs[3]:
         st.markdown("#### WHAT LIMITED THE PORTFOLIO?")
         if run.constraint_diagnostics.empty:
             st.info("No active budget/sector/intervention ceilings were configured.")
@@ -575,7 +800,10 @@ def render_gams_studio(df: pd.DataFrame) -> None:
             st.markdown("##### Interventions")
             st.dataframe(run.intervention_allocation, width="stretch", hide_index=True)
 
-    with tabs[3]:
+    with tabs[4]:
+        _render_gams_diagnostics(model, run)
+
+    with tabs[5]:
         st.markdown("#### Live GAMS view")
         gams_text = gams_model_text(model, weights=active_weights)
         st.code(gams_text, language="text", line_numbers=True)
@@ -587,13 +815,13 @@ def render_gams_studio(df: pd.DataFrame) -> None:
             st.download_button("Download complete GAMS-compatible package", bundle, "gams_compatible_complete_package.zip", "application/zip", key="gams_bundle_download")
         st.warning("This is a GAMS-compatible export. The live result above was solved by HiGHS, not by a hidden GAMS installation.")
 
-    with tabs[4]:
+    with tabs[6]:
         _render_monte_carlo(model, run, active_weights, preset_name)
 
-    with tabs[5]:
+    with tabs[7]:
         _render_llm_copilot(run)
 
-    with tabs[6]:
+    with tabs[8]:
         _source_gams_library()
 
 
