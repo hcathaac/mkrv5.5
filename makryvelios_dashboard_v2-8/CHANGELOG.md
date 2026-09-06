@@ -1,3 +1,14 @@
+# v5.8.1 — 2026-09-06
+
+- Strictly additive Agentic intelligence hotfix over v5.8.0; no existing capability removed.
+- Replaces generic keyword-style Agentic chat with evidence-aware semantic routing over actual computed result rows and PDF page evidence.
+- Adds specific strongest/weakest/model-term/causality/literature routing and semantic retrieval fallback.
+- Adds a persistent multi-turn research chat with quick evidence questions.
+- Adds Local AI via configurable Ollama endpoint/model with no API key; deterministic analysis remains independent of AI.
+- Retains external user-key LLM as an optional third intelligence engine.
+- Upgrades the 150-RQ generator: offline questions are ranked from observed data patterns, while Local/API AI can generate grounded batches from schema + relationship leads + PDF evidence.
+- Preserves approval gates, deterministic numerical engines and all v5.8.0/v5.7.x modules.
+
 # v5.8.0 — 2026-09-06
 
 - Strictly additive upgrade over v5.7.2; no previous module or export path removed.

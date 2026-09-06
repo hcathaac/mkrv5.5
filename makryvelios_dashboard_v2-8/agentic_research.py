@@ -1,4 +1,4 @@
-"""Agentic Research Mode backend for Makryvelios v5.8.0.
+"""Agentic Research Mode backend for Makryvelios v5.8.1.
 
 The agent has two layers:
 1) deterministic/offline planning, evidence indexing, analysis and drafting;
@@ -15,12 +15,15 @@ import math
 import re
 import zipfile
 from collections import Counter
+from difflib import SequenceMatcher
 from itertools import combinations
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Sequence, Callable
 
 import numpy as np
 import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from matplotlib import pyplot as plt
 
 from analytics_core import (
@@ -106,100 +109,146 @@ def literature_key_terms(pdf_pages: pd.DataFrame, top_n: int = 30) -> pd.DataFra
 
 
 def generate_research_questions(df: pd.DataFrame, pdf_pages: pd.DataFrame | None = None, limit: int = 150) -> pd.DataFrame:
-    """Generate a broad, deterministic question bank from actual columns and literature terms."""
+    """Generate a data-aware deterministic RQ bank from actual patterns, not raw cartesian templates."""
     limit = min(max(1, int(limit)), 200)
     numeric = list(df.select_dtypes(include=np.number).columns)
-    categorical = [c for c in df.columns if c not in numeric and df[c].nunique(dropna=True) <= 80]
+    categorical = [c for c in df.columns if c not in numeric and 2 <= df[c].nunique(dropna=True) <= 80]
     time_cols = [c for c in df.columns if re.search(r"year|date|time|έτος|χρον", str(c), re.I)]
     geo_cols = [c for c in df.columns if re.search(r"region|nuts|municip|geograph|περιφέρ|δήμ", str(c), re.I)]
-    terms = literature_key_terms(pdf_pages, top_n=12).term.tolist() if pdf_pages is not None else []
+    terms = literature_key_terms(pdf_pages, top_n=16).term.tolist() if pdf_pages is not None else []
     rows: list[dict[str, Any]] = []
     seen = set()
 
-    def add(question: str, family: str, variables: Sequence[str], priority: int = 2):
+    def add(question: str, family: str, variables: Sequence[str], priority: int = 2, rationale: str = "", source_basis: str = ""):
         q = re.sub(r"\s+", " ", question).strip()
-        if q and q not in seen and len(rows) < limit:
-            seen.add(q)
-            rows.append({"rq_id": f"RQ{len(rows)+1:03d}", "research_question": q, "method_family": family, "variables": "; ".join(map(str, variables)), "priority": priority})
+        key = _normalise_query(q)
+        if q and key not in seen and len(rows) < limit:
+            seen.add(key)
+            rows.append({
+                "rq_id": f"RQ{len(rows)+1:03d}",
+                "research_question": q,
+                "method_family": family,
+                "variables": "; ".join(map(str, variables)),
+                "priority": priority,
+                "rationale": rationale,
+                "source_basis": source_basis,
+            })
 
-    # Literature-only operation when no spreadsheet variables are active.
+    # Literature-only mode remains useful with no spreadsheet.
     if not numeric and terms:
         for term in terms:
-            add(f"How is '{term}' defined, operationalised and measured across the uploaded literature?", "Literature synthesis", [], 1)
-            add(f"What theoretical mechanisms and competing explanations are associated with '{term}' in the uploaded literature?", "Literature synthesis", [], 2)
-            add(f"What empirical methods, datasets and identification strategies are used to study '{term}'?", "Methods review", [], 2)
-            add(f"What limitations, disagreements and unresolved research gaps surround '{term}'?", "Research gap", [], 2)
-            add(f"Which testable hypotheses could be derived from the literature theme '{term}' for a future empirical dataset?", "Hypothesis development", [], 3)
-    # Data quality and descriptive questions.
-    for v in numeric[:40]:
-        add(f"What is the distribution, dispersion, missingness and outlier structure of {v}?", "Descriptive / data quality", [v], 1)
-    for a, b in combinations(numeric[:28], 2):
-        add(f"How strongly is {a} associated with {b}, and is the relationship robust to rank-based correlation?", "Association / correlation", [a, b], 1)
+            add(f"How is '{term}' defined and operationalised across the uploaded sources, and where do the definitions materially diverge?", "Literature synthesis", [], 1, "Frequent uploaded-PDF term", term)
+            add(f"Which empirical designs and measurement strategies are used for '{term}', and which limitations recur across the uploaded sources?", "Methods review", [], 1, "Frequent uploaded-PDF term", term)
+            add(f"What unresolved contradiction or research gap concerning '{term}' is directly visible in the uploaded evidence?", "Research gap", [], 2, "Frequent uploaded-PDF term", term)
+
+    # Data-aware univariate priorities: missingness, variation and scale.
+    profile = []
+    for v in numeric[:120]:
+        s = pd.to_numeric(df[v], errors="coerce")
+        miss = float(s.isna().mean())
+        std = float(s.std()) if s.notna().sum() > 1 else 0.0
+        mean = float(s.mean()) if s.notna().any() else 0.0
+        cv = abs(std / mean) if mean not in {0.0, -0.0} and np.isfinite(mean) else np.nan
+        profile.append((miss, cv if np.isfinite(cv) else -1, std, v))
+    for miss, cv, std, v in sorted(profile, reverse=True)[:25]:
+        why = f"observed missingness={miss:.1%}; SD={std:.4g}" + (f"; |CV|={cv:.3f}" if cv >= 0 else "")
+        add(f"Does the observed distribution of {v} contain enough dispersion and complete information for substantive modelling, and how sensitive are conclusions to its missingness and extremes?", "Descriptive / data quality", [v], 1, why, "Active dataset profile")
+
+    # Rank actual pairwise patterns; do not enumerate arbitrary pairs first.
+    ranked_pairs = []
+    if len(numeric) >= 2:
+        use = numeric[:60]
+        try:
+            pear = df[use].corr(method="pearson", numeric_only=True)
+            spear = df[use].corr(method="spearman", numeric_only=True)
+            for i, a in enumerate(use):
+                for b in use[i + 1:]:
+                    r = pear.loc[a, b]
+                    rs = spear.loc[a, b]
+                    if pd.notna(r):
+                        stability = abs(float(r) - float(rs)) if pd.notna(rs) else np.nan
+                        ranked_pairs.append((abs(float(r)), a, b, float(r), float(rs) if pd.notna(rs) else np.nan, stability))
+        except Exception:
+            ranked_pairs = []
+    for abs_r, a, b, r, rs, stability in sorted(ranked_pairs, reverse=True)[:45]:
+        stable_text = f"Pearson r={r:.3f}; Spearman ρ={rs:.3f}" if np.isfinite(rs) else f"Pearson r={r:.3f}"
+        add(f"Why do {a} and {b} show one of the strongest observed relationships in the active data ({stable_text}), and does that relationship remain after relevant covariate adjustment?", "Association / adjusted econometrics", [a, b], 1, "Ranked from observed correlation structure", stable_text)
+        if np.isfinite(stability) and stability > 0.15:
+            add(f"The Pearson and rank-based association between {a} and {b} diverges materially. Is that discrepancy driven by outliers, non-linearity or subgroup structure?", "Robustness / non-linearity", [a, b], 1, "Pearson-Spearman divergence", stable_text)
         if len(rows) >= limit:
             break
-    # Group heterogeneity.
-    for g in categorical[:12]:
-        for y in numeric[:12]:
-            add(f"Does {y} differ materially across categories of {g}, and what is the effect size?", "Group comparison", [y, g], 2)
-            if len(rows) >= limit:
-                break
-        if len(rows) >= limit:
-            break
-    # Predictive / explanatory questions.
-    for y in numeric[:12]:
-        preds = [x for x in numeric[:18] if x != y][:5]
+
+    # Predictive/Bayesian questions use actual top partners rather than first columns.
+    partners: dict[str, list[str]] = {v: [] for v in numeric}
+    for _, a, b, *_ in sorted(ranked_pairs, reverse=True):
+        if b not in partners[a] and len(partners[a]) < 6:
+            partners[a].append(b)
+        if a not in partners[b] and len(partners[b]) < 6:
+            partners[b].append(a)
+    for y in numeric[:30]:
+        preds = partners.get(y, [])[:5]
         if preds:
-            add(f"How accurately can {y} be predicted from {', '.join(preds)}, and which predictors contribute most?", "Predictive + explainable ML", [y, *preds], 2)
-            add(f"What is the posterior uncertainty around the association of {', '.join(preds[:3])} with {y}?", "Bayesian modelling", [y, *preds[:3]], 2)
-    # Time and geography.
+            add(f"How well can {y} be predicted out of sample from its strongest observed covariates ({', '.join(preds)}), and which variables drive the predictions under SHAP/permutation explanation?", "Predictive + explainable ML", [y, *preds], 2, "Predictors chosen from observed association ranking", "Active dataset")
+            add(f"What is the posterior uncertainty around the multivariable relationship between {y} and {', '.join(preds[:3])}, including posterior predictive fit rather than only point estimates?", "Bayesian modelling", [y, *preds[:3]], 2, "Variables chosen from observed association ranking", "Active dataset")
+
+    # Group heterogeneity selects groups with actual usable sample sizes.
+    for g in categorical[:15]:
+        counts = df[g].value_counts(dropna=True)
+        if len(counts) < 2 or counts.iloc[:2].min() < 5:
+            continue
+        for y in numeric[:15]:
+            add(f"Does {y} differ substantively across {g} categories, which categories drive the heterogeneity, and is the effect robust to unequal variances and non-normality?", "Group comparison", [y, g], 2, f"{g} has {len(counts)} observed categories", "Active dataset")
+            if len(rows) >= limit:
+                break
+        if len(rows) >= limit:
+            break
+
     for t in time_cols[:5]:
-        for y in numeric[:15]:
-            add(f"How has {y} changed over {t}, and is the observed pattern stable across plausible specifications?", "Longitudinal / time series", [y, t], 2)
+        for y in numeric[:18]:
+            add(f"What temporal pattern does {y} exhibit over {t}, and does the apparent trend survive alternative functional forms and structural-break checks?", "Longitudinal / time series", [y, t], 2, "Detected time-like field", str(t))
+            if len(rows) >= limit:
+                break
     for g in geo_cols[:5]:
-        for y in numeric[:15]:
-            add(f"How is {y} distributed across {g}, and is there evidence of spatial concentration or regional heterogeneity?", "Spatial / GIS", [y, g], 2)
-    # Causal candidates are explicitly framed as design questions rather than causal claims.
+        for y in numeric[:18]:
+            add(f"Where are the spatial concentrations of high and low {y} across {g}, and do Moran/LISA diagnostics indicate clustering beyond a simple regional ranking?", "Spatial / GIS", [y, g], 2, "Detected geography field", str(g))
+            if len(rows) >= limit:
+                break
+
+    # Causal design candidates are explicit design questions only.
     binary = [c for c in df.columns if df[c].nunique(dropna=True) == 2]
-    for t in binary[:8]:
+    for treatment in binary[:10]:
+        for y in numeric[:12]:
+            if treatment == y:
+                continue
+            add(f"If {treatment} can be defended as a treatment/exposure, what is its AIPW average treatment effect on {y}, is propensity-score overlap adequate, and which confounders are required for identification?", "Causal inference candidate", [treatment, y], 3, "Binary exposure candidate detected; causal interpretation requires assumptions", "Active dataset")
+            if len(rows) >= limit:
+                break
+
+    # Multi-objective questions prioritise high-variance / likely score-budget variables.
+    objective_vars = [v for _, _, _, v in sorted(profile, reverse=True) if re.search(r"score|benefit|budget|cost|fund|impact|criterion|absorp|score|δαπαν|προϋ", str(v), re.I)]
+    objective_vars += [v for v in numeric if v not in objective_vars]
+    for a, b in combinations(objective_vars[:12], 2):
+        add(f"What is the Pareto frontier when optimising {a} and {b} simultaneously, which alternatives are dominated, and how stable is the frontier under parameter uncertainty?", "Pareto / robust optimisation", [a, b], 2, "Candidate objectives selected from semantic field names and observed variability", "Active dataset")
+        if len(rows) >= limit:
+            break
+
+    # Literature-linked empirical questions reference the actual extracted themes.
+    for term in terms[:16]:
         for y in numeric[:10]:
-            if t != y:
-                add(f"Under a defensible no-unmeasured-confounding design, what is the estimated average treatment effect of {t} on {y}, and is covariate overlap adequate?", "Causal inference candidate", [t, y], 3)
-    # MCDA / Pareto / optimisation candidates.
-    if len(numeric) >= 3:
-        for a, b in combinations(numeric[:10], 2):
-            add(f"Which portfolio choices are Pareto-efficient when simultaneously maximising {a} and {b} under the available resource constraints?", "Pareto / robust optimisation", [a, b], 2)
+            add(f"Do the observed patterns in {y} support, qualify or contradict the uploaded literature's treatment of '{term}', and which page-level evidence should anchor that comparison?", "Literature-linked empirical synthesis", [y], 2, "Frequent uploaded-PDF term", term)
             if len(rows) >= limit:
                 break
-    # Literature-connected questions; source terms are merely leads, not interpreted findings.
-    for term in terms:
-        for y in numeric[:8]:
-            add(f"How can the empirical behaviour of {y} be evaluated in relation to the literature theme '{term}' identified in the uploaded PDFs?", "Literature-linked empirical question", [y], 3)
-    # Fill literature-only banks with cross-theme questions when no numeric dataset is active.
-    if not numeric and terms:
-        for a, b in combinations(terms, 2):
-            add(f"How are the literature themes '{a}' and '{b}' connected, distinguished or jointly modelled across the uploaded sources?", "Cross-theme literature synthesis", [], 3)
-            if len(rows) >= limit:
-                break
-        cycle = 0
-        while len(rows) < limit:
-            term = terms[cycle % len(terms)]
-            add(f"What additional empirical data, robustness checks and falsification tests would be required to evaluate claims concerning '{term}'?", "Literature-to-empirical design", [], 3)
-            add(f"How could competing operational definitions of '{term}' alter the interpretation of future empirical results?", "Measurement robustness", [], 3)
-            cycle += 1
-            if cycle > limit * 3:
-                break
-    # Fill to requested size with multivariate robustness questions if necessary.
+
+    # Fill remaining slots with robustness questions using ranked actual pairs.
     cycle = 0
-    while len(rows) < limit and numeric:
-        y = numeric[cycle % len(numeric)]
-        candidates = [x for x in numeric if x != y]
-        x = candidates[cycle % len(candidates)] if candidates else y
-        add(f"How sensitive is the estimated relationship between {x} and {y} to alternative uncertainty, robust-estimation and subgroup specifications?", "Robustness / sensitivity", [x, y], 3)
+    pair_source = sorted(ranked_pairs, reverse=True) or [(0.0, a, b, np.nan, np.nan, np.nan) for a, b in combinations(numeric[:20], 2)]
+    while len(rows) < limit and pair_source:
+        _, a, b, r, rs, _ = pair_source[cycle % len(pair_source)]
+        add(f"How sensitive is the observed {a}–{b} relationship to missing-data handling, outlier treatment, subgroup composition, robust covariance and alternative model specifications?", "Robustness / sensitivity", [a, b], 3, "Pair selected from observed relationship ranking", f"r={r:.3f}" if np.isfinite(r) else "Active dataset")
         cycle += 1
-        if cycle > limit * 10:
+        if cycle > limit * 5:
             break
     return pd.DataFrame(rows)
-
 
 def build_agentic_plan(
     df: pd.DataFrame,
@@ -309,52 +358,438 @@ def _ols_figure_bytes(coef: pd.DataFrame) -> tuple[dict[str, bytes], dict[str, b
     return static, interactive
 
 
-def offline_agent_reply(run: AgenticRun, question: str) -> str:
-    """Deterministic conversation over computed tables; no external AI required."""
-    q = str(question).strip().casefold()
+def _normalise_query(text: str) -> str:
+    return re.sub(r"[^a-z0-9α-ωάέήίόύώϊϋΐΰ_\- ]+", " ", str(text).casefold()).strip()
+
+
+def _run_evidence_chunks(run: AgenticRun, max_rows_per_table: int = 60) -> list[dict[str, str]]:
+    """Build searchable evidence chunks from the actual computed run."""
+    chunks: list[dict[str, str]] = []
+    for name, table in run.tables.items():
+        if not isinstance(table, pd.DataFrame) or table.empty:
+            continue
+        view = table.head(max_rows_per_table)
+        for idx, row in view.iterrows():
+            bits = []
+            for col, value in row.items():
+                if pd.isna(value):
+                    continue
+                bits.append(f"{col}={value}")
+            chunks.append({"source": name, "locator": str(idx), "text": f"{name}: " + "; ".join(bits)})
+    for key, value in run.narratives.items():
+        if value:
+            chunks.append({"source": f"Narrative:{key}", "locator": "", "text": str(value)})
+    return chunks
+
+
+def semantic_retrieve_run(run: AgenticRun, question: str, top_k: int = 8) -> list[dict[str, str]]:
+    chunks = _run_evidence_chunks(run)
+    if not chunks or not str(question).strip():
+        return []
+    corpus = [c["text"] for c in chunks]
+    try:
+        vec = TfidfVectorizer(ngram_range=(1, 2), min_df=1, strip_accents="unicode")
+        mat = vec.fit_transform(corpus + [str(question)])
+        scores = cosine_similarity(mat[-1], mat[:-1]).ravel()
+        order = np.argsort(scores)[::-1]
+        out = []
+        for i in order:
+            if scores[i] <= 0 and out:
+                break
+            item = dict(chunks[int(i)])
+            item["similarity"] = f"{float(scores[i]):.4f}"
+            out.append(item)
+            if len(out) >= int(top_k):
+                break
+        return out
+    except Exception:
+        q = _normalise_query(question)
+        terms = set(q.split())
+        scored = []
+        for c in chunks:
+            txt = _normalise_query(c["text"])
+            overlap = sum(1 for t in terms if t and t in txt)
+            if overlap:
+                scored.append((overlap, c))
+        return [dict(c, similarity=str(score)) for score, c in sorted(scored, key=lambda x: x[0], reverse=True)[:top_k]]
+
+
+def _query_intent(question: str) -> str:
+    q = _normalise_query(question)
+    examples = {
+        "weakest": [
+            "weakest finding least convincing result what cannot conclude uncertain insignificant not significant caveat",
+            "ποιο ειναι το πιο αδυναμο ευρημα τι δεν μπορω να συμπερανω αβεβαιο μη σημαντικο",
+        ],
+        "strongest": [
+            "strongest finding most important key result strongest evidence main finding",
+            "ισχυροτερο ευρημα σημαντικοτερο αποτελεσμα",
+        ],
+        "causality": [
+            "causal cause effect can i say causes treatment effect causal inference",
+            "αιτιωδης προκαλει επιδραση αιτιοτητα",
+        ],
+        "model": [
+            "regression ols coefficient model fit predictor significance diagnostics",
+            "παλινδρομηση μοντελο συντελεστης",
+        ],
+        "literature": [
+            "literature pdf source citation evidence paper bibliography what do sources say",
+            "βιβλιογραφια πηγες αρθρα pdf",
+        ],
+        "research_questions": [
+            "research questions hypotheses rq questions generate",
+            "ερευνητικα ερωτηματα υποθεσεις",
+        ],
+        "next": [
+            "what next further analysis additional test robustness next step",
+            "τι αλλο επομενο περαιτερω αναλυση",
+        ],
+        "conclusion": [
+            "conclusion conclude overall meaning what can safely conclude",
+            "συμπερασμα τι μπορω να πω",
+        ],
+        "compare": [
+            "compare difference versus which is better stronger weaker between",
+            "συγκρινε διαφορα μεταξυ",
+        ],
+        "explain": [
+            "why explain interpret what does this mean meaning",
+            "γιατι εξηγησε τι σημαινει ερμηνεια",
+        ],
+    }
+    texts, labels = [], []
+    for label, vals in examples.items():
+        for value in vals:
+            texts.append(value)
+            labels.append(label)
+    try:
+        vec = TfidfVectorizer(ngram_range=(1, 2), strip_accents="unicode")
+        mat = vec.fit_transform(texts + [q])
+        scores = cosine_similarity(mat[-1], mat[:-1]).ravel()
+        if float(scores.max()) >= 0.08:
+            return labels[int(scores.argmax())]
+    except Exception:
+        pass
+    return "open"
+
+
+def _format_p(value: Any) -> str:
+    try:
+        return f"{float(value):.4g}"
+    except Exception:
+        return str(value)
+
+
+def _specific_weakest_finding(run: AgenticRun) -> str:
+    coef = run.tables.get("OLS coefficients", pd.DataFrame())
+    if isinstance(coef, pd.DataFrame) and not coef.empty and "p_value" in coef:
+        d = coef.copy()
+        if "term" in d:
+            d = d[~d.term.astype(str).str.lower().isin(["const", "intercept"])]
+        d["p_num"] = pd.to_numeric(d["p_value"], errors="coerce")
+        d = d.dropna(subset=["p_num"]).sort_values("p_num", ascending=False)
+        if not d.empty:
+            r = d.iloc[0]
+            ci = ""
+            crosses = None
+            if {"ci_95_low", "ci_95_high"}.issubset(d.columns):
+                lo, hi = float(r.ci_95_low), float(r.ci_95_high)
+                ci = f", 95% CI [{lo:.4g}, {hi:.4g}]"
+                crosses = lo <= 0 <= hi
+            verdict = "The interval crosses zero, so the adjusted association is not clearly distinguished from the null." if crosses else "It is the least statistically supported coefficient among the configured predictors, even though its interval may not cross zero."
+            return f"The weakest substantive finding in the configured primary OLS model is **{r.term}**: β={float(r.coefficient):.4g}{ci}, p={_format_p(r.p_num)}. {verdict}\n\n**What you cannot safely conclude:** do not present this predictor as a robust independent relationship if the interval includes zero or diagnostics/specification do not support it. The OLS model is also not, by itself, evidence that the predictor causes the outcome."
+    gt = run.tables.get("Group tests", pd.DataFrame())
+    if isinstance(gt, pd.DataFrame) and not gt.empty:
+        pcol = next((c for c in gt.columns if str(c).lower() in {"p_value", "p", "pvalue"}), None)
+        if pcol:
+            d = gt.copy()
+            if "test" in d:
+                d = d[~d["test"].astype(str).str.contains("levene|normality|shapiro", case=False, na=False)]
+            d["p_num"] = pd.to_numeric(d[pcol], errors="coerce")
+            d = d.dropna(subset=["p_num"]).sort_values("p_num", ascending=False)
+            if not d.empty:
+                r = d.iloc[0]
+                label = "; ".join(f"{c}={r[c]}" for c in d.columns[:5] if c != "p_num")
+                return f"The weakest substantive group-comparison result is {label}, p={_format_p(r.p_num)}. It should not be described as a reliable group difference unless the effect size and uncertainty support that interpretation."
+    top = run.tables.get("Top correlations", pd.DataFrame())
+    if isinstance(top, pd.DataFrame) and not top.empty:
+        d = top.copy()
+        d["p_num"] = pd.to_numeric(d.get("p_value"), errors="coerce")
+        d["abs_r"] = pd.to_numeric(d.get("abs_correlation"), errors="coerce")
+        d = d.sort_values(["p_num", "abs_r"], ascending=[False, True])
+        r = d.iloc[0]
+        return f"Within the retained correlation screen, the weakest pair is **{r.variable_1} ↔ {r.variable_2}**: r={float(r.correlation):.3f}, p={_format_p(r.p_value)}. This does not support a causal claim and may not support even a stable association if the p-value is weak."
+    return "This run does not contain enough ranked inferential output to identify a weakest empirical finding. Map an outcome/predictors or run the relevant tests first."
+
+
+def _specific_named_model_term(run: AgenticRun, question: str) -> str | None:
+    coef = run.tables.get("OLS coefficients", pd.DataFrame())
+    if not isinstance(coef, pd.DataFrame) or coef.empty or "term" not in coef:
+        return None
+    q = _normalise_query(question)
+    matches = []
+    for _, row in coef.iterrows():
+        term = str(row.get("term", ""))
+        if term.lower() in {"const", "intercept"}:
+            continue
+        nt = _normalise_query(term)
+        if nt and (nt in q or SequenceMatcher(None, nt, q).ratio() > 0.72):
+            matches.append(row)
+    if not matches:
+        return None
+    r = matches[0]
+    ci = ""
+    if "ci_95_low" in coef and "ci_95_high" in coef and pd.notna(r.get("ci_95_low")) and pd.notna(r.get("ci_95_high")):
+        ci = f", 95% CI [{float(r['ci_95_low']):.4g}, {float(r['ci_95_high']):.4g}]"
+    return f"For **{r['term']}** in the configured primary OLS model: β={float(r['coefficient']):.4g}{ci}, p={_format_p(r.get('p_value'))}. This is the adjusted association conditional on the other mapped predictors; it is not automatically causal."
+
+def _specific_strongest_finding(run: AgenticRun) -> str:
+    coef = run.tables.get("OLS coefficients", pd.DataFrame())
+    if isinstance(coef, pd.DataFrame) and not coef.empty and "p_value" in coef:
+        d = coef.copy()
+        if "term" in d:
+            d = d[~d.term.astype(str).str.lower().isin(["const", "intercept"])]
+        d["p_num"] = pd.to_numeric(d["p_value"], errors="coerce")
+        d = d.dropna(subset=["p_num"]).sort_values("p_num")
+        if not d.empty:
+            r = d.iloc[0]
+            ci = ""
+            if {"ci_95_low", "ci_95_high"}.issubset(d.columns):
+                ci = f", 95% CI [{float(r.ci_95_low):.4g}, {float(r.ci_95_high):.4g}]"
+            return f"The strongest result in the configured primary OLS model is **{r.term}**: β={float(r.coefficient):.4g}{ci}, p={_format_p(r.p_num)}. This is the strongest conditional association in that model, not automatically a causal effect."
+    top = run.tables.get("Top correlations", pd.DataFrame())
+    if isinstance(top, pd.DataFrame) and not top.empty:
+        r = top.iloc[0]
+        return f"The strongest screened pairwise association is **{r.variable_1} ↔ {r.variable_2}**: r={float(r.correlation):.3f}, p={_format_p(r.p_value)}. It is a bivariate association screen, not a causal estimate."
+    return run.narratives.get("discussion", "No ranked empirical finding is available.")
+
+
+def _literature_answer(run: AgenticRun, question: str) -> str:
+    ev = run.tables.get("Literature source evidence", pd.DataFrame())
+    if not isinstance(ev, pd.DataFrame) or ev.empty:
+        return "No literature PDFs were indexed in this run."
+    corpus = []
+    for _, row in ev.head(2000).iterrows():
+        corpus.append(f"{row.get('document', '')} page {row.get('page', '')}: {row.get('snippet', '')} {row.get('doi', '')}")
+    try:
+        vec = TfidfVectorizer(ngram_range=(1, 2), strip_accents="unicode", stop_words="english")
+        mat = vec.fit_transform(corpus + [question])
+        scores = cosine_similarity(mat[-1], mat[:-1]).ravel()
+        order = np.argsort(scores)[::-1][:5]
+    except Exception:
+        order = np.arange(min(5, len(ev)))
+    bullets = []
+    for idx in order:
+        row = ev.iloc[int(idx)]
+        snippet = str(row.get("snippet", "")).strip()[:420]
+        if snippet:
+            doi = f" DOI {row.get('doi')}" if str(row.get("doi", "")).strip() else ""
+            bullets.append(f"- **{row.get('document')}**, p. {row.get('page')}{doi}: {snippet}")
+    return "The most relevant passages in the uploaded PDF evidence are:\n" + "\n".join(bullets) + "\n\nThese are extractive source notes; verify quotations and final bibliographic metadata before submission."
+
+
+def offline_agent_reply(run: AgenticRun, question: str, history: Sequence[dict[str, str]] | None = None) -> str:
+    """Evidence-grounded deterministic conversation with semantic routing."""
+    q = str(question).strip()
     if not q:
-        return "Ask about the strongest finding, conclusions, limitations, literature, research questions, model results or next analyses."
-    if any(k in q for k in ["strongest", "important", "main finding", "key finding", "σημαν"]):
-        top = run.tables.get("Top correlations", pd.DataFrame())
-        if not top.empty:
-            r = top.iloc[0]
-            return f"The strongest screened pairwise association is {r.variable_1} ↔ {r.variable_2}: r={r.correlation:.3f}, p={r.p_value:.4g}. This is an association screen, not a causal estimate. The exported OLS/diagnostic tables should be used to decide whether it survives the configured multivariable specification."
-        return run.narratives.get("discussion", "No ranked association table is available for this run.")
-    if any(k in q for k in ["conclusion", "conclude", "συμπέρα", "συμπερα"]):
-        return run.narratives.get("conclusion", "No conclusion draft is available.")
-    if any(k in q for k in ["limit", "weak", "caveat", "περιορισ"]):
-        return run.narratives.get("limitations", "No limitations draft is available.")
-    if any(k in q for k in ["literature", "source", "pdf", "bibliograph", "βιβλιο", "πηγ"]):
-        terms = run.tables.get("Literature key terms", pd.DataFrame())
-        ev = run.tables.get("Literature source evidence", pd.DataFrame())
-        if ev.empty:
-            return "No literature PDFs were indexed in this run."
-        topic_text = ", ".join(terms.term.head(10).astype(str)) if not terms.empty else "no stable key-term list"
-        doi_count = int(ev.doi.astype(str).str.len().gt(0).sum()) if "doi" in ev else 0
-        return f"The offline literature pass indexed {ev.document.nunique()} document(s) and {len(ev)} page-level evidence records. Frequent terms include {topic_text}. DOI strings were detected on {doi_count} page records. These are navigation/evidence notes; verify bibliographic metadata and quotations in the originals before submission."
-    if any(k in q for k in ["research question", "rq", "ερευνητικ"]):
+        return "Ask a specific question about this run, a variable, a model, a PDF source, a finding, a limitation or the next analysis."
+    named_term = _specific_named_model_term(run, q)
+    if named_term is not None and not any(token in _normalise_query(q) for token in ["strongest", "weakest", "ισχυροτερο", "αδυναμο"]):
+        return named_term
+    intent = _query_intent(q)
+    if intent == "weakest":
+        return _specific_weakest_finding(run)
+    if intent == "strongest":
+        return _specific_strongest_finding(run)
+    if intent == "literature":
+        return _literature_answer(run, q)
+    if intent == "research_questions":
         rqs = run.tables.get("Research questions", pd.DataFrame())
         if rqs.empty:
             return "No research-question bank was generated."
-        top = rqs.head(10)
-        return "Top generated questions:\n" + "\n".join(f"{r.rq_id}. {r.research_question}" for r in top.itertuples(index=False))
-    if any(k in q for k in ["model", "regression", "ols", "coefficient", "παλινδ"]):
+        try:
+            vec = TfidfVectorizer(ngram_range=(1, 2), strip_accents="unicode")
+            texts = rqs.research_question.astype(str).tolist()
+            mat = vec.fit_transform(texts + [q])
+            scores = cosine_similarity(mat[-1], mat[:-1]).ravel()
+            top = rqs.iloc[np.argsort(scores)[::-1][:10]]
+        except Exception:
+            top = rqs.head(10)
+        return "Most relevant generated research questions:\n" + "\n".join(f"{r.rq_id}. {r.research_question} [{r.method_family}]" for r in top.itertuples(index=False))
+    if intent == "model":
         coef = run.tables.get("OLS coefficients", pd.DataFrame())
         fit = run.tables.get("OLS fit", pd.DataFrame())
+        diag = run.tables.get("OLS diagnostics", pd.DataFrame())
         if coef.empty:
             return "No primary OLS model was executed. Map a primary outcome and predictors, rebuild the plan and approve the run."
         nonconst = coef[~coef.term.astype(str).str.lower().isin(["const", "intercept"])].copy()
-        nonconst["p_value"] = pd.to_numeric(nonconst.p_value, errors="coerce")
-        nonconst = nonconst.sort_values("p_value").head(5)
-        fit_text = fit.head(1).to_dict("records")[0] if not fit.empty else {}
-        terms = "; ".join(f"{r.term}: β={r.coefficient:.4g}, p={r.p_value:.4g}" for r in nonconst.itertuples(index=False))
-        return f"Primary model summary: {fit_text}. Lowest-p-value non-intercept terms: {terms}. Interpret effect sizes and diagnostics, not p-values alone."
-    if any(k in q for k in ["next", "further", "additional", "what else", "επόμεν", "περαιτέρω"]):
-        suggestions = ["Re-check missingness and influential observations before final inference.", "Use the Frontier Methods Lab when the question is explicitly causal, Bayesian, Pareto/multi-objective or explainability-focused.", "Run subgroup/temporal/spatial robustness only when the mapped variables represent those dimensions validly.", "Re-run the approved Agentic workflow after any data, variable or model change so the manifest matches the manuscript."]
-        return "Recommended next steps:\n- " + "\n- ".join(suggestions)
-    return ("The offline agent is intentionally bounded. I can answer from the computed run about the strongest findings, model coefficients, literature evidence, generated research questions, conclusions, limitations and next analyses. "
-            "For open-ended synthesis, enable the optional LLM mode; numerical evidence remains unchanged.")
+        nonconst["p_num"] = pd.to_numeric(nonconst.p_value, errors="coerce")
+        nonconst = nonconst.sort_values("p_num").head(8)
+        terms = "; ".join(f"{r.term}: β={float(r.coefficient):.4g}, p={_format_p(r.p_value)}" for r in nonconst.itertuples(index=False))
+        ftxt = fit.head(1).to_dict("records")[0] if not fit.empty else {}
+        dtxt = diag.head(8).to_dict("records") if not diag.empty else []
+        return f"Primary model fit: {ftxt}.\n\nMost supported non-intercept terms: {terms}.\n\nDiagnostics available: {dtxt}."
+    if intent == "causality":
+        causal = [(n, t) for n, t in run.tables.items() if isinstance(t, pd.DataFrame) and not t.empty and re.search(r"causal|aipw|treatment|ate", str(n), re.I)]
+        if not causal:
+            return "This Agentic run contains association/prediction outputs but no explicit causal-effect table. Therefore it is **not safe to say that one variable causes another** from this run. Use the Causal Inference Lab with a defensible treatment, outcome, covariate set, overlap check and identification assumptions."
+        name, table = causal[0]
+        return f"A causal-design output is present in **{name}**. Its first rows are:\n{table.head(8).to_string(index=False)}\n\nThe causal interpretation is still conditional on the stated identification assumptions and overlap/diagnostic checks."
+    if intent == "conclusion":
+        return run.narratives.get("conclusion", "No conclusion draft is available.") + "\n\n" + _specific_strongest_finding(run)
+    if intent == "next":
+        return "Recommended next analyses are conditional on the present evidence:\n- inspect the weakest/unstable terms and diagnostics before adding complexity;\n- use causal AIPW only for a defensible treatment/outcome design;\n- use Bayesian modelling when posterior uncertainty is substantively useful;\n- use SHAP for predictive explanation, not causal attribution;\n- use Pareto/robust optimisation for competing portfolio objectives;\n- re-run this Agentic workflow after any data or specification change so the manuscript and manifest remain aligned."
+    retrieved = semantic_retrieve_run(run, q, top_k=6)
+    if retrieved:
+        evidence = "\n".join(f"- [{r['source']}] {r['text'][:650]}" for r in retrieved)
+        return f"I matched your question to the following computed/source evidence from this run:\n{evidence}\n\nIf you want freer synthesis across these rows, use Local AI or External AI in this same Agentic tab; the numerical evidence above remains the source of truth."
+    return "I could not find run evidence that directly matches that question. Ask about a named variable/model/source, or run the corresponding analysis first."
 
+
+def agent_context_text(run: AgenticRun, question: str = "", max_chars: int = 50000) -> str:
+    retrieved = semantic_retrieve_run(run, question or run.plan.goal, top_k=18)
+    chunks = [f"RESEARCH GOAL: {run.plan.goal}"]
+    if retrieved:
+        chunks.append("MOST RELEVANT COMPUTED EVIDENCE:\n" + "\n".join(f"[{r['source']}] {r['text']}" for r in retrieved))
+    for name in ["Quality audit", "Top correlations", "OLS coefficients", "OLS fit", "OLS diagnostics", "Group tests", "Literature key terms"]:
+        table = run.tables.get(name)
+        if isinstance(table, pd.DataFrame) and not table.empty:
+            chunks.append(f"[{name}]\n{table.head(25).to_csv(index=False)}")
+    ev = run.tables.get("Literature source evidence")
+    if isinstance(ev, pd.DataFrame) and not ev.empty:
+        chunks.append("[LITERATURE EVIDENCE]\n" + ev.head(40).to_csv(index=False))
+    chunks.append("[OFFLINE DISCUSSION]\n" + run.narratives.get("discussion", ""))
+    return "\n\n".join(chunks)[:int(max_chars)]
+
+
+def ollama_text_reply(prompt: str, model: str, endpoint: str = "http://127.0.0.1:11434", timeout: int = 180, temperature: float = 0.12) -> str:
+    import requests
+    response = requests.post(
+        f"{endpoint.rstrip('/')}/api/generate",
+        json={"model": model, "prompt": str(prompt), "stream": False, "options": {"temperature": float(temperature)}},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    text = str(response.json().get("response", "")).strip()
+    if not text:
+        raise RuntimeError("Local Ollama returned no response text.")
+    return text
+
+
+def ollama_agent_reply(run: AgenticRun, question: str, model: str, endpoint: str = "http://127.0.0.1:11434", history: Sequence[dict[str, str]] | None = None, timeout: int = 180) -> str:
+    import requests
+    context = agent_context_text(run, question, max_chars=55000)
+    hist = "\n".join(f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in (history or [])[-8:])
+    prompt = f"""You are the local Makryvelios research agent. Answer the user's exact question, not a generic safety template. Use only the supplied computed evidence and uploaded-PDF evidence. Quote numerical values exactly. If the evidence does not answer the question, say what is missing. Distinguish descriptive association, adjusted association, prediction, optimisation and causal estimates. For literature evidence, cite document name and page when available. Answer in the same language as the user unless explicitly asked otherwise.
+
+RECENT CONVERSATION
+{hist}
+
+RUN EVIDENCE
+{context}
+
+USER QUESTION
+{question}
+"""
+    return ollama_text_reply(prompt, model, endpoint=endpoint, timeout=timeout, temperature=0.12)
+
+
+def _parse_rq_json(text: str) -> list[dict[str, Any]]:
+    raw = str(text).strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
+    candidates = []
+    try:
+        obj = json.loads(raw)
+        candidates = obj if isinstance(obj, list) else obj.get("questions", []) if isinstance(obj, dict) else []
+    except Exception:
+        for line in raw.splitlines():
+            line = line.strip().rstrip(",")
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    candidates.append(item)
+            except Exception:
+                pass
+    out = []
+    for item in candidates:
+        q = str(item.get("research_question") or item.get("question") or "").strip()
+        if not q:
+            continue
+        priority_raw = item.get("priority", 2)
+        try:
+            priority = int(priority_raw)
+        except Exception:
+            priority = 2
+        out.append({
+            "research_question": q,
+            "method_family": str(item.get("method_family") or item.get("method") or "AI-grounded"),
+            "variables": str(item.get("variables") or ""),
+            "priority": priority,
+            "rationale": str(item.get("rationale") or item.get("why") or ""),
+            "source_basis": str(item.get("source_basis") or item.get("evidence") or ""),
+        })
+    return out
+
+
+def ai_research_question_prompt(df: pd.DataFrame, pdf_pages: pd.DataFrame | None, goal: str, count: int, existing: Sequence[str] = ()) -> str:
+    numeric = list(df.select_dtypes(include=np.number).columns)
+    schema = []
+    for c in df.columns[:180]:
+        schema.append({"name": str(c), "dtype": str(df[c].dtype), "non_missing": int(df[c].notna().sum()), "unique": int(df[c].nunique(dropna=True))})
+    corr_summary = []
+    if len(numeric) >= 2:
+        try:
+            corr = df[numeric[:60]].corr(numeric_only=True)
+            for i, a in enumerate(corr.columns):
+                for b in corr.columns[i + 1:]:
+                    r = corr.loc[a, b]
+                    if pd.notna(r):
+                        corr_summary.append((abs(float(r)), a, b, float(r)))
+            corr_summary = sorted(corr_summary, reverse=True)[:30]
+        except Exception:
+            corr_summary = []
+    literature = []
+    if pdf_pages is not None and not pdf_pages.empty:
+        ev = extract_source_evidence(pdf_pages)
+        literature = ev[["document", "page", "snippet"]].head(35).to_dict("records") if not ev.empty else []
+    return f"""Generate {int(count)} DISTINCT, specific, researchable questions for the following project. They must be grounded in the actual variable schema, observed high-level relationships, and uploaded literature evidence below. Avoid generic template questions. Use the real variable names where useful. Mix descriptive, econometric, causal-design, Bayesian, predictive/XAI, spatial/time, MCDA/optimisation and robustness questions only when the data can support them. Do not invent variables or literature claims.
+
+GOAL: {goal}
+SCHEMA: {json.dumps(schema, ensure_ascii=False)[:18000]}
+STRONG CORRELATION LEADS (not causal): {json.dumps(corr_summary, ensure_ascii=False)[:8000]}
+LITERATURE PAGE EVIDENCE: {json.dumps(literature, ensure_ascii=False)[:18000]}
+QUESTIONS ALREADY GENERATED (do not repeat): {json.dumps(list(existing)[-80:], ensure_ascii=False)[:12000]}
+
+Return ONLY a JSON array. Each object must contain: research_question, method_family, variables, priority (1-3), rationale, source_basis."""
+
+
+def generate_questions_with_ai(df: pd.DataFrame, pdf_pages: pd.DataFrame | None, goal: str, total: int, reply_fn: Callable[[str], str], batch_size: int = 25) -> pd.DataFrame:
+    total = min(max(1, int(total)), 200)
+    rows, seen = [], set()
+    attempts = 0
+    while len(rows) < total and attempts < max(3, math.ceil(total / batch_size) * 2):
+        attempts += 1
+        need = min(int(batch_size), total - len(rows))
+        prompt = ai_research_question_prompt(df, pdf_pages, goal, need, [r["research_question"] for r in rows])
+        parsed = _parse_rq_json(reply_fn(prompt))
+        for item in parsed:
+            key = _normalise_query(item["research_question"])
+            if key and key not in seen:
+                seen.add(key)
+                rows.append(item)
+                if len(rows) >= total:
+                    break
+        if not parsed:
+            break
+    if not rows:
+        raise RuntimeError("The selected AI engine did not return parseable research questions.")
+    for i, row in enumerate(rows, 1):
+        row["rq_id"] = f"RQ{i:03d}"
+    cols = ["rq_id", "research_question", "method_family", "variables", "priority", "rationale", "source_basis"]
+    return pd.DataFrame(rows)[cols]
 
 def _offline_narrative(tables: dict[str, pd.DataFrame], plan: AgenticPlan) -> dict[str, str]:
     desc = tables.get("Descriptive statistics", pd.DataFrame())
@@ -459,7 +894,7 @@ def run_agentic_workflow(
     interactive.update(ols_interactive)
     narratives = _offline_narrative(tables, plan)
     manifest = {
-        "version": "5.8.0",
+        "version": "5.8.1",
         "mode": "offline deterministic agentic workflow",
         "goal": plan.goal,
         "mappings": plan.mappings,
@@ -646,7 +1081,7 @@ def agentic_submission_package(run: AgenticRun, title: str = "Agentic Research D
         for name, payload in run.interactive_html.items():
             archive.writestr(f"interactive/{name}", payload)
         archive.writestr("README.txt", (
-            "Makryvelios Agentic Research Mode v5.8.0\n\n"
+            "Makryvelios Agentic Research Mode v5.8.1\n\n"
             "This package is generated locally from the configured data and PDF evidence.\n"
             "Numerical outputs do not require an external AI API.\n"
             "The draft is designed to be close to submission-ready but must be checked by a human researcher before submission.\n"

@@ -90,3 +90,11 @@ The application reproduces the model families and provides auditable exports. Nu
 - DuckDB/PyArrow are additive data-engine layers; `analytics_core.py` retains all previous readers and adds Parquet, Feather and Arrow IPC input.
 - `agentic_research.py` and `agentic_ui.py` add the standalone 12D mode. PDF text stays local by default; the deterministic agent generates up to 150 RQs, runs bounded analytical routines and builds a DOCX/XLSX/JSON/HTML/graphics package.
 - Any external LLM call remains optional, explicit and post-computation. The LLM is never the source of numerical results and cannot bypass the user approval gate.
+
+
+## Agentic intelligence hotfix — v5.8.1
+
+- `agentic_research.py`: semantic evidence index/retrieval, specific strongest/weakest and named-model-term answers, local Ollama conversation, AI-grounded RQ batching, and data-aware offline RQ generation.
+- `agentic_ui.py`: unified multi-turn conversation with Smart Offline / Local Ollama / External API engines.
+- `documentation/AGENTIC_INTELLIGENCE_GUIDE_v5_8_1.md`: operation and scientific boundaries.
+- No pre-v5.8.1 numerical engine is removed or replaced.

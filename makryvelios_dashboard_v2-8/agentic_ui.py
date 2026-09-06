@@ -1,4 +1,4 @@
-"""Streamlit interface for standalone Agentic Research Mode v5.8.0."""
+"""Streamlit interface for standalone Agentic Research Mode v5.8.1."""
 from __future__ import annotations
 
 import json
@@ -7,41 +7,98 @@ import pandas as pd
 import streamlit as st
 
 from agentic_research import (
+    agent_context_text,
     agentic_submission_package,
     build_agentic_plan,
     extract_source_evidence,
+    generate_questions_with_ai,
     generate_research_questions,
     literature_key_terms,
     offline_agent_reply,
+    ollama_agent_reply,
+    ollama_text_reply,
     run_agentic_workflow,
 )
 from llm_bridge import configured as llm_configured, llm_reply
-from research_chair import extract_pdf_collection
+from research_chair import extract_pdf_collection, ollama_models
 
 
-def _compact_evidence(run) -> str:
-    chunks = [f"Goal: {run.plan.goal}"]
-    for name in ["Quality audit", "Top correlations", "OLS coefficients", "OLS diagnostics", "Group tests", "PCA variance", "Cluster profiles", "Literature key terms", "Literature source evidence"]:
-        table = run.tables.get(name)
-        if isinstance(table, pd.DataFrame) and not table.empty:
-            chunks.append(f"\n[{name}]\n" + table.head(20).to_csv(index=False))
-    chunks.append("\nOffline discussion:\n" + run.narratives.get("discussion", ""))
-    chunks.append("\nOffline conclusion:\n" + run.narratives.get("conclusion", ""))
-    return "\n".join(chunks)[:50000]
+def _external_agent_reply(run, question: str, config: dict, history: list[dict[str, str]]) -> str:
+    evidence = agent_context_text(run, question, max_chars=55000)
+    recent = "\n".join(f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in history[-8:])
+    prompt = f"""RECENT CONVERSATION
+{recent}
+
+COMPUTED AND SOURCE EVIDENCE
+{evidence}
+
+USER QUESTION
+{question}
+"""
+    system = (
+        "You are the Makryvelios Agentic Research Mode. Answer the user's exact question rather than returning a generic research-safety paragraph. "
+        "Use only the supplied computed results and uploaded-PDF evidence. Preserve all numerical values exactly. If the evidence cannot answer the question, identify precisely what is missing. "
+        "Distinguish descriptive association, adjusted association, prediction, optimisation and causal estimates. Cite uploaded literature by document and page where available. "
+        "Answer in the same language as the user unless asked otherwise."
+    )
+    return llm_reply(prompt, config, system=system)
+
+
+def _selected_agent_engine() -> tuple[str, str, str]:
+    engine = st.radio(
+        "Agent intelligence engine",
+        [
+            "Smart offline semantic agent — no AI/API",
+            "Local AI — Ollama (no API key)",
+            "External AI — user API key",
+        ],
+        horizontal=True,
+        key="agentic_intelligence_engine",
+        help="Numerical models always run in the deterministic application engines. This setting controls language understanding, research-question generation and conversation.",
+    )
+    endpoint = "http://127.0.0.1:11434"
+    model = ""
+    if engine.startswith("Local AI"):
+        a, b = st.columns([2, 2])
+        with a:
+            endpoint = st.text_input("Ollama endpoint", value="http://127.0.0.1:11434", key="agentic_ollama_endpoint")
+        with b:
+            detected = ollama_models(endpoint=endpoint, timeout=0.6)
+            if detected:
+                model = st.selectbox("Local model", detected, key="agentic_ollama_model")
+                st.success(f"Local AI detected: {model}")
+            else:
+                model = st.text_input("Local model name", value="llama3.1:8b", key="agentic_ollama_model_manual")
+                st.info("No Ollama model was auto-detected at this endpoint. You can still enter a model name and retry after Ollama is running.")
+        st.caption("For a locally deployed Streamlit app, Ollama can run on the same computer with no API key. Streamlit Community Cloud cannot reach your laptop's localhost; use a reachable/self-hosted Ollama endpoint there.")
+    elif engine.startswith("External AI"):
+        config = st.session_state.get("llm_config", {})
+        if llm_configured(config):
+            st.success(f"External model ready: {config.get('provider')} · {config.get('model')}")
+        else:
+            st.warning("Enter the provider, API key and model in the persistent LLM sidebar panel. Until then, switch to Smart offline or Local AI.")
+    return engine, endpoint, model
 
 
 def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
-    st.subheader("Agentic Research Mode — fast, reproducible end-to-end research runner")
+    st.subheader("Agentic Research Mode — evidence-aware research intelligence")
     st.markdown(
-        '<div class="guide"><b>Purpose.</b> Turn a research objective, active dataset and literature PDFs into a bounded research workflow, up to 150 candidate research questions, local evidence extraction, executed analysis, discussion/conclusions and a near-submission package.<br>'
-        '<b>Offline first.</b> Planning, PDF text extraction, numerical analysis, question generation, drafting and exports work without an AI API.<br>'
-        '<b>Optional AI.</b> If the sidebar LLM key is configured, the model can refine plans and prose after deterministic computation. It never becomes the numerical solver and never runs an unapproved workflow.</div>',
+        '<div class="guide"><b>Different from Research Chair.</b> This module maintains a research conversation, semantically retrieves the exact computed rows/PDF passages relevant to the question, and can use a local language model with no API key.<br>'
+        '<b>Three intelligence levels.</b> Smart deterministic semantic routing, Local Ollama AI, or an external user-key LLM. Numerical analysis remains deterministic in all three modes.<br>'
+        '<b>End-to-end.</b> Dataset + literature → specific RQs → approval-gated model execution → evidence-grounded conversation → DOCX/XLSX/JSON/HTML/graphics submission package.</div>',
         unsafe_allow_html=True,
     )
-    st.warning("Target: remove repetitive research labour and produce a near-submission analytical package. Final scholarly verification remains mandatory: references, quotations, causal claims, formatting and institutional/journal requirements must be checked before submission.")
+    st.warning("The agent may automate research labour, but it does not invent evidence. Bibliographic details, quotations, causal identification and final institutional/journal compliance still require verification.")
 
-    mode = st.radio("Agentic execution mode", ["Offline deterministic (no API required)", "Hybrid: deterministic + optional LLM synthesis"], horizontal=True, key="agentic_mode")
-    pdf_uploads = st.file_uploader("Literature PDFs", type=["pdf"], accept_multiple_files=True, key="agentic_pdfs", help="PDF text is extracted locally. Image-only scans require OCR outside this module before text can be analysed.")
+    engine, ollama_endpoint, ollama_model = _selected_agent_engine()
+
+    pdf_uploads = st.file_uploader(
+        "Literature PDFs",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="agentic_pdfs",
+        help="Text is extracted locally. Source evidence retains document and page provenance.",
+    )
     if pdf_uploads:
         try:
             pdf_pages = extract_pdf_collection(tuple((item.name, item.getvalue()) for item in pdf_uploads))
@@ -56,7 +113,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
         with st.expander("Literature evidence index", expanded=False):
             evidence = extract_source_evidence(pdf_pages)
             terms = literature_key_terms(pdf_pages, 30)
-            st.dataframe(evidence.head(300), width="stretch", hide_index=True)
+            st.dataframe(evidence.head(500), width="stretch", hide_index=True)
             st.markdown("##### Frequent literature terms")
             st.dataframe(terms, width="stretch", hide_index=True)
 
@@ -69,11 +126,14 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
 
     all_columns = list(df.columns)
     numeric = list(df.select_dtypes(include="number").columns)
-    categorical = [c for c in all_columns if c not in numeric]
     st.markdown("### Variable roles")
     if df.empty:
-        st.info("No spreadsheet dataset is active. Literature indexing and LLM discussion can still be used, but numerical execution requires a dataset.")
-        outcome = None; predictors = []; group = None; time_col = None; region = None
+        st.info("No spreadsheet dataset is active. Literature intelligence and conversation can still work; numerical execution requires a dataset.")
+        outcome = None
+        predictors = []
+        group = None
+        time_col = None
+        region = None
     else:
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -82,7 +142,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
             predictor_options = [c for c in numeric if c != outcome]
             predictors = st.multiselect("Primary predictors", predictor_options, default=predictor_options[:min(6, len(predictor_options))], max_selections=60, key="agentic_predictors")
         with c3:
-            group_candidates = [c for c in all_columns if c != outcome and df[c].nunique(dropna=True) <= 80]
+            group_candidates = [c for c in all_columns if c != outcome and 2 <= df[c].nunique(dropna=True) <= 80]
             group = st.selectbox("Group / subgroup (optional)", [None] + group_candidates, key="agentic_group")
         c4, c5 = st.columns(2)
         with c4:
@@ -94,18 +154,38 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
             region_opts = [None] + all_columns
             region = st.selectbox("Region / geography (optional)", region_opts, index=region_opts.index(region_guess) if region_guess in region_opts else 0, key="agentic_region")
 
-    st.markdown("### Research-question generator")
+    st.markdown("### Specific research-question generator")
     rq_count = st.slider("Questions to generate in one batch", 10, 200, 150, 10, key="agentic_rq_count")
-    if st.button("GENERATE RESEARCH QUESTIONS", key="agentic_generate_rqs"):
+    st.caption("Smart offline mode ranks actual observed relationships before composing questions. Local/API AI modes additionally read the schema, observed correlation leads and uploaded PDF evidence to create less templated questions.")
+    if st.button("GENERATE SPECIFIC RESEARCH QUESTIONS", key="agentic_generate_rqs"):
         try:
-            rqs = generate_research_questions(df, pdf_pages, limit=int(rq_count))
+            with st.spinner(f"Generating up to {int(rq_count)} grounded research questions..."):
+                if engine.startswith("Local AI"):
+                    if not ollama_model.strip():
+                        raise ValueError("Enter or select a local Ollama model first.")
+                    reply_fn = lambda prompt: ollama_text_reply(prompt, ollama_model, endpoint=ollama_endpoint, timeout=240, temperature=0.18)
+                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=25)
+                    source = f"Local Ollama · {ollama_model}"
+                elif engine.startswith("External AI"):
+                    config = st.session_state.get("llm_config", {})
+                    if not llm_configured(config):
+                        raise ValueError("Configure the external LLM in the sidebar or select another engine.")
+                    system = "Generate only grounded, specific research questions from the supplied schema, observed relationship leads and PDF evidence. Never invent variables or source claims. Return the requested JSON only."
+                    reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=150)
+                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=25)
+                    source = f"External AI · {config.get('model')}"
+                else:
+                    rqs = generate_research_questions(df, pdf_pages, limit=int(rq_count))
+                    source = "Smart deterministic data-aware generator"
             st.session_state["agentic_rqs"] = rqs
-            st.success(f"Generated {len(rqs)} candidate research questions from the active variables and uploaded literature terms.")
+            st.session_state["agentic_rq_source"] = source
+            st.success(f"Generated {len(rqs)} research questions using {source}.")
         except Exception as exc:
             st.error(f"Question generation failed: {exc}")
     rqs = st.session_state.get("agentic_rqs")
     if isinstance(rqs, pd.DataFrame):
-        st.dataframe(rqs, width="stretch", hide_index=True, height=520)
+        st.caption(f"Question engine: {st.session_state.get('agentic_rq_source', 'current workflow')}")
+        st.dataframe(rqs, width="stretch", hide_index=True, height=540)
         st.download_button("Download research-question bank (CSV)", rqs.to_csv(index=False).encode("utf-8-sig"), "agentic_research_questions.csv", "text/csv", key="agentic_rq_csv")
 
     st.markdown("### Research plan + approval gate")
@@ -117,18 +197,22 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
             st.error(f"Plan generation failed: {exc}")
     plan = st.session_state.get("agentic_plan")
     if plan is not None:
-        plan_table = pd.DataFrame(plan.steps)
-        st.dataframe(plan_table, width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(plan.steps), width="stretch", hide_index=True)
         for warning in plan.warnings:
             st.info(warning)
         approval = st.checkbox("I have reviewed the mapped variables and approve this bounded workflow", key="agentic_approval")
         if st.button("APPROVE & RUN AGENTIC WORKFLOW", type="primary", disabled=not approval or (df.empty and pdf_pages.empty), key="agentic_run"):
             try:
-                with st.spinner("Running the approved offline research workflow..."):
+                with st.spinner("Running the approved deterministic research workflow..."):
                     run = run_agentic_workflow(df, plan=plan, pdf_pages=pdf_pages, outcome=outcome, predictors=predictors, group=group, question_limit=int(rq_count))
+                chosen_rqs = st.session_state.get("agentic_rqs")
+                if isinstance(chosen_rqs, pd.DataFrame) and not chosen_rqs.empty:
+                    run.tables["Research questions"] = chosen_rqs.copy()
+                    run.manifest["research_questions_generated"] = int(len(chosen_rqs))
+                    run.manifest["research_question_engine"] = st.session_state.get("agentic_rq_source", "pre-generated")
                 st.session_state["agentic_run_result"] = run
-                st.session_state["agentic_rqs"] = run.tables.get("Research questions")
-                st.success("Agentic workflow completed. Numerical analysis, discussion, conclusions and package components are ready.")
+                st.session_state["agentic_chat_history"] = []
+                st.success("Agentic workflow completed. The run is now available to the evidence-aware research conversation and submission builder.")
             except Exception as exc:
                 st.error(f"Agentic workflow failed: {exc}")
 
@@ -143,7 +227,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
         b.metric("Tables generated", len(run.tables))
         c.metric("Research questions", run.manifest.get("research_questions_generated", 0))
         d.metric("PDF sources", len(run.manifest.get("pdf_documents", [])))
-        st.markdown("#### Offline evidence-grounded synthesis")
+        st.markdown("#### Evidence-grounded synthesis")
         st.write(run.narratives.get("discussion", ""))
         st.markdown("#### Conclusion")
         st.write(run.narratives.get("conclusion", ""))
@@ -157,12 +241,11 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
             st.download_button(f"Download {name}", payload, name, "text/html", key=f"agentic_interactive_{name}")
 
     with out_tabs[2]:
-        rqs = run.tables.get("Research questions", pd.DataFrame())
-        st.dataframe(rqs, width="stretch", hide_index=True, height=650)
+        st.dataframe(run.tables.get("Research questions", pd.DataFrame()), width="stretch", hide_index=True, height=650)
 
     with out_tabs[3]:
         st.dataframe(run.tables.get("Literature source evidence", pd.DataFrame()), width="stretch", hide_index=True, height=600)
-        st.caption("The source index preserves document/page provenance and detected DOI/URL strings. It does not invent missing author/title metadata and must be verified before citation.")
+        st.caption("Document/page provenance is retained. The agent may retrieve relevant passages, but quotations and final bibliographic metadata must be checked against the originals.")
 
     with out_tabs[4]:
         st.markdown("#### Discussion")
@@ -173,34 +256,61 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
         st.write(run.narratives.get("limitations", ""))
 
     with out_tabs[5]:
-        st.markdown("#### Offline research conversation")
-        offline_q = st.text_input("Ask the computed run", value="What is the strongest finding and what can I safely conclude?", key="agentic_offline_question")
-        if st.button("ASK OFFLINE AGENT", key="agentic_offline_ask"):
-            st.session_state["agentic_offline_answer"] = offline_agent_reply(run, offline_q)
-        if st.session_state.get("agentic_offline_answer"):
-            st.markdown("##### DETERMINISTIC ANSWER — no external AI used")
-            st.write(st.session_state["agentic_offline_answer"])
+        st.markdown("#### Evidence-aware research conversation")
+        st.caption("This is now a single multi-turn agent conversation. Smart Offline semantically routes the question to actual result rows; Local/External AI receives only retrieved computed/source evidence and the recent conversation.")
+        history = st.session_state.setdefault("agentic_chat_history", [])
+        for message in history:
+            with st.chat_message(message.get("role", "assistant")):
+                st.markdown(message.get("content", ""))
 
-        st.divider()
-        st.markdown("#### Optional LLM synthesis")
-        config = st.session_state.get("llm_config", {})
-        if not mode.startswith("Hybrid"):
-            st.info("The offline conversation above remains available. Switch to Hybrid only if you also want external LLM synthesis.")
-        elif not llm_configured(config):
-            st.info("Enter an LLM API key/model in the persistent sidebar panel. The offline agent and all numerical analysis remain fully usable without it.")
-        else:
-            st.success(f"LLM available for synthesis: {config.get('provider')} · {config.get('model')}")
-            prompt = st.text_area("Discuss the computed run with the LLM", value="Review the computed evidence, identify the strongest defensible findings, challenge weak interpretations, propose the next analyses, and draft a concise Discussion and Conclusion suitable for a research paper. Do not change any numerical result and do not claim causality unless the evidence explicitly contains a causal estimate with stated assumptions.", height=180, key="agentic_llm_prompt")
-            if st.button("ASK LLM ABOUT THE COMPUTED RUN", key="agentic_llm_ask"):
-                try:
-                    evidence = _compact_evidence(run)
-                    answer = llm_reply(f"USER TASK:\n{prompt}\n\nCOMPUTED EVIDENCE:\n{evidence}", config)
-                    st.session_state["agentic_llm_answer"] = answer
-                except Exception as exc:
-                    st.error(f"LLM synthesis failed: {exc}")
-            if st.session_state.get("agentic_llm_answer"):
-                st.markdown("##### AI SYNTHESIS — not a computed statistical output")
-                st.markdown(st.session_state["agentic_llm_answer"])
+        q1, q2, q3, q4 = st.columns(4)
+        quick_question = None
+        with q1:
+            if st.button("Strongest finding", key="agentic_quick_strongest"):
+                quick_question = "What is the strongest defensible finding in this run, with the exact evidence?"
+        with q2:
+            if st.button("Weakest finding", key="agentic_quick_weakest"):
+                quick_question = "What is the weakest finding and what can I not safely conclude?"
+        with q3:
+            if st.button("Literature vs results", key="agentic_quick_lit"):
+                quick_question = "Which uploaded literature evidence is most relevant to the strongest computed results, and where does it agree or not directly support them?"
+        with q4:
+            if st.button("Next analysis", key="agentic_quick_next"):
+                quick_question = "Given the actual results and diagnostics, what should I run next and why?"
+
+        typed = st.chat_input("Ask anything about this run, a variable, model, source, finding, limitation or next analysis")
+        question = typed or quick_question
+        if question:
+            history.append({"role": "user", "content": question})
+            try:
+                with st.spinner("Reading the relevant computed evidence..."):
+                    if engine.startswith("Local AI"):
+                        if not ollama_model.strip():
+                            raise ValueError("Select or enter a local Ollama model first.")
+                        answer = ollama_agent_reply(run, question, ollama_model, endpoint=ollama_endpoint, history=history[:-1])
+                        label = f"Local AI · {ollama_model}"
+                    elif engine.startswith("External AI"):
+                        config = st.session_state.get("llm_config", {})
+                        if not llm_configured(config):
+                            raise ValueError("Configure the external LLM in the sidebar or switch the Agent intelligence engine.")
+                        answer = _external_agent_reply(run, question, config, history[:-1])
+                        label = f"External AI · {config.get('model')}"
+                    else:
+                        answer = offline_agent_reply(run, question, history=history[:-1])
+                        label = "Smart semantic offline agent"
+                history.append({"role": "assistant", "content": answer, "engine": label})
+                st.rerun()
+            except Exception as exc:
+                history.append({"role": "assistant", "content": f"Agent error: {exc}"})
+                st.rerun()
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.caption(f"Current conversation engine: {engine}")
+        with c2:
+            if st.button("CLEAR RESEARCH CONVERSATION", key="agentic_clear_chat"):
+                st.session_state["agentic_chat_history"] = []
+                st.rerun()
 
     with out_tabs[6]:
         title = st.text_input("Draft paper title", value="Makryvelios Agentic Research Draft", key="agentic_paper_title")

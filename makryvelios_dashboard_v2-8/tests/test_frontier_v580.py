@@ -93,6 +93,11 @@ def test_agentic_150_questions_and_package_without_llm():
     assert len(run.tables["Research questions"]) == 150
     offline_answer = offline_agent_reply(run, "What is the strongest finding and conclusion?")
     assert isinstance(offline_answer, str) and len(offline_answer) > 40
+    weakest = offline_agent_reply(run, "What is the weakest finding and what can I not safely conclude?")
+    assert "p=" in weakest and ("OLS" in weakest or "correlation" in weakest or "group" in weakest)
+    named = offline_agent_reply(run, "What does x3 tell me in this model?")
+    assert "x3" in named and "β=" in named and "p=" in named
+    assert {"rationale", "source_basis"}.issubset(rqs.columns)
     payload = agentic_submission_package(run, title="Test paper")
     with zipfile.ZipFile(io.BytesIO(payload)) as z:
         names = set(z.namelist())

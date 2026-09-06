@@ -1,3 +1,7 @@
+# v5.8.1 Agentic intelligence hotfix
+
+Upload the v5.8.1 hotfix contents into the existing `makryvelios_dashboard_v2-8` folder and commit to `main`. The Streamlit entrypoint remains unchanged. Acceptance marker: header v5.8.1 and three Agent intelligence engines inside 12D.
+
 # Update the GitHub and Streamlit app — v5.8.0
 
 The deployed GitHub folder is `makryvelios_dashboard_v2-8` and the Streamlit main-file path remains `makryvelios_dashboard_v2-8/app.py`.
