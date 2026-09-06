@@ -14,6 +14,7 @@ from agentic_research import (
     generate_questions_with_ai,
     generate_research_questions,
     RQ_RESPONSE_SCHEMA,
+    SYNTHESIS_RESPONSE_SCHEMA,
     literature_key_terms,
     offline_agent_reply,
     ollama_agent_reply,
@@ -248,7 +249,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                                 if not llm_configured(config):
                                     raise ValueError("Configure a sidebar AI provider first.")
                                 system = "You are an evidence-grounded research synthesis engine. Preserve every computed number exactly, name the actual variables/models/sources, and never replace missing evidence with generic boilerplate."
-                                reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240)
+                                reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240, response_schema=SYNTHESIS_RESPONSE_SCHEMA)
                                 provider_label = f"{config.get('provider')} · {config.get('model')}"
                             run = refine_run_with_ai(run, reply_fn, provider_label=provider_label)
                     except Exception as synth_exc:
@@ -299,7 +300,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                         if not llm_configured(config):
                             raise ValueError("Configure a sidebar AI provider first.")
                         system = "You are an evidence-grounded research synthesis engine. Preserve every computed number exactly, name the actual variables/models/sources, and never replace missing evidence with generic boilerplate."
-                        reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240)
+                        reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240, response_schema=SYNTHESIS_RESPONSE_SCHEMA)
                         provider_label = f"{config.get('provider')} · {config.get('model')}"
                     run = refine_run_with_ai(run, reply_fn, provider_label=provider_label)
                     st.session_state["agentic_run_result"] = run

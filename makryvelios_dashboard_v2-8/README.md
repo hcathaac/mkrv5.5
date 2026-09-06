@@ -1,4 +1,6 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.8.3
+# Makryvelios Research Analytics & Econometrics Command Centre v5.8.4
+
+Version 5.8.4 is a strictly additive manual-control synthesis reliability hotfix over v5.8.3. Groq GPT-OSS synthesis now uses Groq Structured Outputs with a strict JSON schema when the caller requests a schema, and Agentic full-draft synthesis requests that schema explicitly. The parser also accepts a complete sectioned prose response from the same selected model. It does **not** automatically change provider/model or hide provider failures; the selected engine remains visible and manual. No existing analytical, GAMS/ITA, mapping, Frontier, Research Chair, Agentic, submission or export capability is removed.
 
 
 

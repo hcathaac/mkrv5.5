@@ -1,3 +1,12 @@
+# v5.8.4 — Agentic structured-synthesis reliability
+
+- Additive hotfix only; no feature removals.
+- Groq GPT-OSS structured synthesis now sends `response_format: json_schema` with `strict: true` when a synthesis schema is requested.
+- Agentic full-draft rewrite explicitly requests the synthesis schema.
+- The synthesis parser also recovers complete Abstract/Results/Discussion/Conclusion/Limitations from sectioned prose returned by the same model.
+- No automatic provider/model fallback is introduced; provider/model selection remains manual and visible.
+- Deterministic numerical tables remain unchanged.
+
 # v5.8.3 — 2026-09-06
 
 - Added Gemini schema-constrained structured output for Agentic research-question generation.

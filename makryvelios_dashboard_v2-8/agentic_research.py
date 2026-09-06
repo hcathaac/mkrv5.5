@@ -695,25 +695,135 @@ USER QUESTION
     return ollama_text_reply(prompt, model, endpoint=endpoint, timeout=timeout, temperature=0.12)
 
 
+SYNTHESIS_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "abstract": {"type": "string"},
+        "results": {"type": "string"},
+        "discussion": {"type": "string"},
+        "conclusion": {"type": "string"},
+        "limitations": {"type": "string"},
+        "key_findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "finding": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "strength": {"type": "string"},
+                    "safe_inference": {"type": "string"},
+                },
+                "required": ["finding", "evidence", "strength", "safe_inference"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["abstract", "results", "discussion", "conclusion", "limitations", "key_findings"],
+    "additionalProperties": False,
+}
+
+
+def _sectioned_synthesis_from_prose(raw: str) -> dict[str, Any]:
+    """Recover a structured synthesis from sectioned prose from the *same* model response.
+
+    This is not a provider/model fallback. It simply accepts Markdown/plain-text
+    headings when a model ignores the requested JSON envelope.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    aliases = {
+        "abstract": "abstract",
+        "executive abstract": "abstract",
+        "results": "results",
+        "results synthesis": "results",
+        "findings": "results",
+        "discussion": "discussion",
+        "conclusion": "conclusion",
+        "conclusions": "conclusion",
+        "limitations": "limitations",
+        "limitations and caveats": "limitations",
+        "key findings": "key_findings",
+        "key findings and safe inference": "key_findings",
+    }
+    heading_re = re.compile(
+        r"(?im)^\s*(?:#{1,6}\s*|\*\*|__)?"
+        r"(abstract|executive abstract|results synthesis|results|findings|discussion|conclusions?|limitations(?: and caveats)?|key findings(?: and safe inference)?)"
+        r"(?:\*\*|__)?\s*[:\-–—]?\s*$"
+    )
+    matches = list(heading_re.finditer(text))
+    if not matches:
+        # Accept compact labelled sections such as 'Abstract: ... Results: ...'.
+        inline_re = re.compile(
+            r"(?is)(?:^|\n)\s*(abstract|results|discussion|conclusion|limitations|key findings)\s*:\s*"
+        )
+        matches = list(inline_re.finditer(text))
+        heading_re = inline_re
+    if not matches:
+        return {}
+    sections: dict[str, str] = {}
+    for i, m in enumerate(matches):
+        label = re.sub(r"\s+", " ", m.group(1).strip().lower())
+        key = aliases.get(label, label)
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+        if body:
+            sections[key] = body
+    if "key_findings" in sections:
+        findings = []
+        for line in sections["key_findings"].splitlines():
+            clean = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+            if not clean:
+                continue
+            findings.append({
+                "finding": clean,
+                "evidence": "See the sectioned model response and the computed evidence supplied to the synthesis pass.",
+                "strength": "model-synthesised",
+                "safe_inference": "Interpret only at the level supported by the deterministic run.",
+            })
+        sections["key_findings"] = findings
+    else:
+        sections["key_findings"] = []
+    return sections
+
+
 def _parse_synthesis_json(text: str) -> dict[str, Any]:
-    raw = str(text).strip()
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
+    raw = str(text or "").strip()
+    if not raw:
+        raise RuntimeError("The selected AI returned an empty synthesis response.")
+    cleaned = re.sub(r"```(?:json|javascript|js)?", "", raw, flags=re.I).replace("```", "").strip()
+
+    # 1) Strict whole-response JSON.
     try:
-        obj = json.loads(raw)
+        obj = json.loads(cleaned)
         if isinstance(obj, dict):
             return obj
     except Exception:
         pass
-    # Tolerate a short preamble/epilogue around a JSON object.
-    start, end = raw.find("{"), raw.rfind("}")
-    if 0 <= start < end:
+
+    # 2) Embedded JSON object in explanatory prose.
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", cleaned):
         try:
-            obj = json.loads(raw[start:end + 1])
+            obj, _ = decoder.raw_decode(cleaned[match.start():])
             if isinstance(obj, dict):
                 return obj
         except Exception:
-            pass
-    raise RuntimeError("The selected AI returned prose rather than the requested structured synthesis. Retry or use a different model.")
+            continue
+
+    # 3) Sectioned prose from the same model response. This preserves useful
+    #    synthesis while still requiring all manuscript sections before the run
+    #    is marked as AI-refined.
+    sectioned = _sectioned_synthesis_from_prose(cleaned)
+    required = ["abstract", "results", "discussion", "conclusion", "limitations"]
+    if sectioned and all(str(sectioned.get(k, "")).strip() for k in required):
+        return sectioned
+
+    raise RuntimeError(
+        "The selected AI response could not be structured into Abstract, Results, Discussion, Conclusion and Limitations. "
+        "No provider/model fallback was used; retry the same model or choose another one manually."
+    )
 
 
 def refine_run_with_ai(

@@ -70,7 +70,7 @@ def llm_reply(
     if provider.startswith("groq"):
         if not cfg.base_url.strip():
             cfg.base_url = "https://api.groq.com/openai/v1"
-        return _openai_compatible_reply(prompt, cfg, system=system, timeout=timeout)
+        return _openai_compatible_reply(prompt, cfg, system=system, timeout=timeout, response_schema=response_schema, strict_json_schema=True)
     if provider.startswith("ollama"):
         return _ollama_reply(prompt, cfg, system=system, timeout=timeout)
     if provider.startswith("openai") or "compatible" in provider:
@@ -166,21 +166,31 @@ def _ollama_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> 
     return text
 
 
-def _openai_compatible_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> str:
+def _openai_compatible_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int, response_schema: Mapping[str, Any] | None = None, strict_json_schema: bool = False) -> str:
     base = cfg.base_url.strip().rstrip("/") or "https://api.openai.com/v1"
     endpoint = base if base.endswith("/chat/completions") else base + "/chat/completions"
+    payload = {
+        "model": cfg.model,
+        "max_tokens": max(256, min(int(cfg.max_tokens), 12000)),
+        "temperature": 0.15,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    if response_schema is not None:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "makryvelios_structured_response",
+                "strict": bool(strict_json_schema),
+                "schema": dict(response_schema),
+            },
+        }
     response = requests.post(
         endpoint,
         headers={"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"},
-        json={
-            "model": cfg.model,
-            "max_tokens": max(256, min(int(cfg.max_tokens), 12000)),
-            "temperature": 0.15,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-        },
+        json=payload,
         timeout=timeout,
     )
     if not response.ok:
