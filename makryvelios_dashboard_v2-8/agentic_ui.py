@@ -17,6 +17,7 @@ from agentic_research import (
     offline_agent_reply,
     ollama_agent_reply,
     ollama_text_reply,
+    refine_run_with_ai,
     run_agentic_workflow,
 )
 from llm_bridge import configured as llm_configured, llm_reply
@@ -45,16 +46,19 @@ USER QUESTION
 
 
 def _selected_agent_engine() -> tuple[str, str, str]:
+    options = [
+        "Smart offline semantic agent — no AI/API",
+        "Local AI — Ollama (no API key)",
+        "Configured AI — sidebar provider",
+    ]
+    default_index = 2 if llm_configured(st.session_state.get("llm_config", {})) else 0
     engine = st.radio(
         "Agent intelligence engine",
-        [
-            "Smart offline semantic agent — no AI/API",
-            "Local AI — Ollama (no API key)",
-            "External AI — user API key",
-        ],
+        options,
+        index=default_index,
         horizontal=True,
         key="agentic_intelligence_engine",
-        help="Numerical models always run in the deterministic application engines. This setting controls language understanding, research-question generation and conversation.",
+        help="Numerical models always run in the deterministic application engines. This setting controls language understanding, research-question generation, full-draft synthesis and conversation.",
     )
     endpoint = "http://127.0.0.1:11434"
     model = ""
@@ -71,12 +75,12 @@ def _selected_agent_engine() -> tuple[str, str, str]:
                 model = st.text_input("Local model name", value="llama3.1:8b", key="agentic_ollama_model_manual")
                 st.info("No Ollama model was auto-detected at this endpoint. You can still enter a model name and retry after Ollama is running.")
         st.caption("For a locally deployed Streamlit app, Ollama can run on the same computer with no API key. Streamlit Community Cloud cannot reach your laptop's localhost; use a reachable/self-hosted Ollama endpoint there.")
-    elif engine.startswith("External AI"):
+    elif engine.startswith("Configured AI"):
         config = st.session_state.get("llm_config", {})
         if llm_configured(config):
             st.success(f"External model ready: {config.get('provider')} · {config.get('model')}")
         else:
-            st.warning("Enter the provider, API key and model in the persistent LLM sidebar panel. Until then, switch to Smart offline or Local AI.")
+            st.warning("Configure Gemini, Groq, Claude, Ollama or another compatible model in the persistent sidebar AI panel. Until then, switch to Smart offline or direct Local AI.")
     return engine, endpoint, model
 
 
@@ -84,13 +88,23 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
     st.subheader("Agentic Research Mode — evidence-aware research intelligence")
     st.markdown(
         '<div class="guide"><b>Different from Research Chair.</b> This module maintains a research conversation, semantically retrieves the exact computed rows/PDF passages relevant to the question, and can use a local language model with no API key.<br>'
-        '<b>Three intelligence levels.</b> Smart deterministic semantic routing, Local Ollama AI, or an external user-key LLM. Numerical analysis remains deterministic in all three modes.<br>'
+        '<b>Three intelligence levels.</b> Smart deterministic semantic routing, direct Local Ollama, or the configured sidebar AI engine (Gemini/Groq/Claude/Ollama/OpenAI-compatible). Numerical analysis remains deterministic in all three modes.<br>'
         '<b>End-to-end.</b> Dataset + literature → specific RQs → approval-gated model execution → evidence-grounded conversation → DOCX/XLSX/JSON/HTML/graphics submission package.</div>',
         unsafe_allow_html=True,
     )
     st.warning("The agent may automate research labour, but it does not invent evidence. Bibliographic details, quotations, causal identification and final institutional/journal compliance still require verification.")
 
     engine, ollama_endpoint, ollama_model = _selected_agent_engine()
+    ai_engine_selected = engine.startswith("Local AI") or engine.startswith("Configured AI")
+    auto_ai_synthesis = st.checkbox(
+        "Automatically run an AI synthesis pass after the deterministic analysis",
+        value=ai_engine_selected,
+        disabled=not ai_engine_selected,
+        key="agentic_auto_ai_synthesis",
+        help="This rewrites Abstract, Results, Discussion, Conclusion and run-specific Limitations from the computed tables and retrieved PDF evidence. It never changes the numerical results.",
+    )
+    if ai_engine_selected:
+        st.caption("AI synthesis is a second pass over computed evidence, not a substitute for the statistical/optimisation engines. The submission DOCX/HTML will use the refined sections when available.")
 
     pdf_uploads = st.file_uploader(
         "Literature PDFs",
@@ -166,14 +180,14 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                     reply_fn = lambda prompt: ollama_text_reply(prompt, ollama_model, endpoint=ollama_endpoint, timeout=240, temperature=0.18)
                     rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=25)
                     source = f"Local Ollama · {ollama_model}"
-                elif engine.startswith("External AI"):
+                elif engine.startswith("Configured AI"):
                     config = st.session_state.get("llm_config", {})
                     if not llm_configured(config):
                         raise ValueError("Configure the external LLM in the sidebar or select another engine.")
                     system = "Generate only grounded, specific research questions from the supplied schema, observed relationship leads and PDF evidence. Never invent variables or source claims. Return the requested JSON only."
                     reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=150)
                     rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=25)
-                    source = f"External AI · {config.get('model')}"
+                    source = f"Configured AI · {config.get('provider')} · {config.get('model')}"
                 else:
                     rqs = generate_research_questions(df, pdf_pages, limit=int(rq_count))
                     source = "Smart deterministic data-aware generator"
@@ -210,6 +224,24 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                     run.tables["Research questions"] = chosen_rqs.copy()
                     run.manifest["research_questions_generated"] = int(len(chosen_rqs))
                     run.manifest["research_question_engine"] = st.session_state.get("agentic_rq_source", "pre-generated")
+                if auto_ai_synthesis and ai_engine_selected:
+                    try:
+                        with st.spinner("Running evidence-grounded AI synthesis over the completed run..."):
+                            if engine.startswith("Local AI"):
+                                if not ollama_model.strip():
+                                    raise ValueError("Enter or select a local Ollama model first.")
+                                reply_fn = lambda prompt: ollama_text_reply(prompt, ollama_model, endpoint=ollama_endpoint, timeout=240, temperature=0.10)
+                                provider_label = f"Local Ollama · {ollama_model}"
+                            else:
+                                config = st.session_state.get("llm_config", {})
+                                if not llm_configured(config):
+                                    raise ValueError("Configure a sidebar AI provider first.")
+                                system = "You are an evidence-grounded research synthesis engine. Preserve every computed number exactly, name the actual variables/models/sources, and never replace missing evidence with generic boilerplate."
+                                reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240)
+                                provider_label = f"{config.get('provider')} · {config.get('model')}"
+                            run = refine_run_with_ai(run, reply_fn, provider_label=provider_label)
+                    except Exception as synth_exc:
+                        st.warning(f"Deterministic analysis completed, but the optional AI synthesis pass failed: {synth_exc}. The offline results were retained unchanged.")
                 st.session_state["agentic_run_result"] = run
                 st.session_state["agentic_chat_history"] = []
                 st.success("Agentic workflow completed. The run is now available to the evidence-aware research conversation and submission builder.")
@@ -227,10 +259,43 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
         b.metric("Tables generated", len(run.tables))
         c.metric("Research questions", run.manifest.get("research_questions_generated", 0))
         d.metric("PDF sources", len(run.manifest.get("pdf_documents", [])))
-        st.markdown("#### Evidence-grounded synthesis")
+        ai_meta = run.manifest.get("ai_synthesis", {})
+        if ai_meta.get("enabled"):
+            st.success(f"AI synthesis active: {ai_meta.get('provider')}. Numerical tables remain deterministic and unchanged.")
+        else:
+            st.info("This run currently uses the deterministic first-pass narrative. Choose Local AI or a configured sidebar AI engine and run the synthesis pass below for a non-template research draft.")
+        if run.narratives.get("abstract"):
+            st.markdown("#### Abstract")
+            st.write(run.narratives.get("abstract", ""))
+        st.markdown("#### Results synthesis")
+        st.write(run.narratives.get("results", run.narratives.get("discussion", "")))
+        st.markdown("#### Discussion")
         st.write(run.narratives.get("discussion", ""))
         st.markdown("#### Conclusion")
         st.write(run.narratives.get("conclusion", ""))
+
+        can_refine = ai_engine_selected
+        if st.button("REFINE / REWRITE ENTIRE DRAFT WITH SELECTED AI", type="primary", disabled=not can_refine, key="agentic_refine_full_run"):
+            try:
+                with st.spinner("Retrieving computed rows and PDF evidence, then rewriting the draft..."):
+                    if engine.startswith("Local AI"):
+                        if not ollama_model.strip():
+                            raise ValueError("Enter or select a local Ollama model first.")
+                        reply_fn = lambda prompt: ollama_text_reply(prompt, ollama_model, endpoint=ollama_endpoint, timeout=240, temperature=0.10)
+                        provider_label = f"Local Ollama · {ollama_model}"
+                    else:
+                        config = st.session_state.get("llm_config", {})
+                        if not llm_configured(config):
+                            raise ValueError("Configure a sidebar AI provider first.")
+                        system = "You are an evidence-grounded research synthesis engine. Preserve every computed number exactly, name the actual variables/models/sources, and never replace missing evidence with generic boilerplate."
+                        reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240)
+                        provider_label = f"{config.get('provider')} · {config.get('model')}"
+                    run = refine_run_with_ai(run, reply_fn, provider_label=provider_label)
+                    st.session_state["agentic_run_result"] = run
+                st.success("AI synthesis completed. Abstract, Results, Discussion, Conclusion, limitations and the submission package now use the evidence-grounded rewrite.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"AI synthesis failed: {exc}")
 
     with out_tabs[1]:
         for name, table in run.tables.items():
@@ -248,16 +313,24 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
         st.caption("Document/page provenance is retained. The agent may retrieve relevant passages, but quotations and final bibliographic metadata must be checked against the originals.")
 
     with out_tabs[4]:
+        if run.narratives.get("abstract"):
+            st.markdown("#### Abstract")
+            st.write(run.narratives.get("abstract", ""))
+        st.markdown("#### Results")
+        st.write(run.narratives.get("results", run.narratives.get("discussion", "")))
         st.markdown("#### Discussion")
         st.write(run.narratives.get("discussion", ""))
         st.markdown("#### Conclusions")
         st.write(run.narratives.get("conclusion", ""))
         st.markdown("#### Limitations")
         st.write(run.narratives.get("limitations", ""))
+        if run.narratives.get("offline_discussion"):
+            with st.expander("Audit: original deterministic first-pass narrative", expanded=False):
+                st.write(run.narratives.get("offline_discussion", ""))
 
     with out_tabs[5]:
         st.markdown("#### Evidence-aware research conversation")
-        st.caption("This is now a single multi-turn agent conversation. Smart Offline semantically routes the question to actual result rows; Local/External AI receives only retrieved computed/source evidence and the recent conversation.")
+        st.caption("This is now a single multi-turn agent conversation. Smart Offline semantically routes the question to actual result rows; Local/Configured AI receives only retrieved computed/source evidence and the recent conversation.")
         history = st.session_state.setdefault("agentic_chat_history", [])
         for message in history:
             with st.chat_message(message.get("role", "assistant")):
@@ -289,12 +362,12 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                             raise ValueError("Select or enter a local Ollama model first.")
                         answer = ollama_agent_reply(run, question, ollama_model, endpoint=ollama_endpoint, history=history[:-1])
                         label = f"Local AI · {ollama_model}"
-                    elif engine.startswith("External AI"):
+                    elif engine.startswith("Configured AI"):
                         config = st.session_state.get("llm_config", {})
                         if not llm_configured(config):
                             raise ValueError("Configure the external LLM in the sidebar or switch the Agent intelligence engine.")
                         answer = _external_agent_reply(run, question, config, history[:-1])
-                        label = f"External AI · {config.get('model')}"
+                        label = f"Configured AI · {config.get('provider')} · {config.get('model')}"
                     else:
                         answer = offline_agent_reply(run, question, history=history[:-1])
                         label = "Smart semantic offline agent"

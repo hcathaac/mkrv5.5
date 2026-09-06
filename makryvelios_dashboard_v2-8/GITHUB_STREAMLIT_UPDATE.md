@@ -1,3 +1,7 @@
+# v5.8.2 update note
+
+After uploading the v5.8.2 hotfix, reboot Streamlit. Confirm the sidebar shows the expanded **AI / LLM RESEARCH ENGINE** provider selector and that 12D Agentic Research Mode exposes automatic AI synthesis plus the full-draft refinement button. Existing main-file path and deployment structure remain unchanged.
+
 # v5.8.1 Agentic intelligence hotfix
 
 Upload the v5.8.1 hotfix contents into the existing `makryvelios_dashboard_v2-8` folder and commit to `main`. The Streamlit entrypoint remains unchanged. Acceptance marker: header v5.8.1 and three Agent intelligence engines inside 12D.

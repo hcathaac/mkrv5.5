@@ -127,7 +127,7 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .gams-badge{display:inline-block;padding:.24rem .55rem;border-radius:999px;background:#0B1F3A;border:1px solid #38BDF8;color:#F8FAFC!important;font-weight:800;font-size:.78rem}
 
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.8.1 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.8.2 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -316,23 +316,55 @@ with st.sidebar:
         selected_label = "No dataset"
         df = pd.DataFrame()
 
-    st.markdown('<div class="llm-panel"><b>LLM CO-PILOT · USER API KEY</b><br><small>Optional. Numerical analysis and optimisation continue to work without it.</small></div>', unsafe_allow_html=True)
-    llm_provider = st.selectbox("LLM provider", ["Anthropic Claude", "OpenAI-compatible"], key="global_llm_provider")
-    llm_api_key = st.text_input("LLM API Key", type="password", key="global_llm_api_key", help="Stored only in this Streamlit session; never written to application exports.")
-    default_llm_model = "claude-sonnet-5" if llm_provider == "Anthropic Claude" else ""
-    llm_model = st.text_input("LLM model ID", value=default_llm_model, placeholder="e.g. claude-sonnet-5", key=f"global_llm_model_{llm_provider}")
-    llm_base_url = ""
-    if llm_provider == "OpenAI-compatible":
-        llm_base_url = st.text_input("OpenAI-compatible base URL", value="https://api.openai.com/v1", key="global_llm_base_url")
-    llm_max_tokens = st.number_input("LLM maximum output tokens", min_value=256, max_value=12000, value=2500, step=256, key="global_llm_max_tokens")
+    st.markdown('<div class="llm-panel"><b>AI / LLM RESEARCH ENGINE</b><br><small>Optional. Numerical analysis and optimisation remain deterministic. Choose hosted AI, a free-plan route, or local Ollama.</small></div>', unsafe_allow_html=True)
+    llm_provider = st.selectbox(
+        "AI provider",
+        [
+            "Anthropic Claude",
+            "Google Gemini — free tier available",
+            "Groq — free plan available",
+            "Ollama Local — no API key",
+            "OpenAI-compatible",
+        ],
+        key="global_llm_provider",
+    )
+    provider_defaults = {
+        "Anthropic Claude": ("claude-sonnet-5", ""),
+        "Google Gemini — free tier available": ("gemini-3.7-flash", ""),
+        "Groq — free plan available": ("openai/gpt-oss-120b", "https://api.groq.com/openai/v1"),
+        "Ollama Local — no API key": ("llama3.1:8b", "http://127.0.0.1:11434"),
+        "OpenAI-compatible": ("", "https://api.openai.com/v1"),
+    }
+    default_llm_model, default_base_url = provider_defaults[llm_provider]
+    needs_key = not llm_provider.startswith("Ollama")
+    llm_api_key = st.text_input(
+        "API Key" if needs_key else "API Key",
+        type="password",
+        disabled=not needs_key,
+        placeholder="Not required for local Ollama" if not needs_key else "Paste the provider key",
+        key=f"global_llm_api_key_{llm_provider}",
+        help="Session-only. It is never written to exports. Ollama Local does not require a key.",
+    )
+    llm_model = st.text_input("Model ID", value=default_llm_model, key=f"global_llm_model_{llm_provider}")
+    llm_base_url = default_base_url
+    if llm_provider in {"OpenAI-compatible", "Ollama Local — no API key", "Groq — free plan available"}:
+        label = "Ollama endpoint" if llm_provider.startswith("Ollama") else "API base URL"
+        llm_base_url = st.text_input(label, value=default_base_url, key=f"global_llm_base_url_{llm_provider}")
+    if llm_provider.startswith("Google Gemini"):
+        st.warning("Gemini's free tier may use submitted content to improve Google products. Do not send confidential/restricted research material unless that is acceptable for the project.")
+    elif llm_provider.startswith("Groq"):
+        st.caption("Groq provides a free plan with rate limits. It is useful for fast synthesis and conversational passes; numerical evidence remains computed locally.")
+    elif llm_provider.startswith("Ollama"):
+        st.caption("Local Ollama is the privacy-first no-key option. On Streamlit Community Cloud, 127.0.0.1 refers to the cloud server, not your laptop; use a reachable/self-hosted Ollama endpoint or run the app locally.")
+    llm_max_tokens = st.number_input("AI maximum output tokens", min_value=256, max_value=12000, value=4000, step=256, key="global_llm_max_tokens")
     st.session_state["llm_config"] = {
-        "provider": llm_provider, "api_key": llm_api_key, "model": llm_model.strip(),
+        "provider": llm_provider, "api_key": llm_api_key if needs_key else "", "model": llm_model.strip(),
         "base_url": llm_base_url.strip(), "max_tokens": int(llm_max_tokens),
     }
     if llm_configured(st.session_state["llm_config"]):
-        st.success("LLM co-pilot configured for this session. It is used only when you explicitly press an LLM action button.")
+        st.success("AI engine configured for this session. Agentic Mode can now use it for evidence-grounded synthesis, conversation, RQ generation and paper refinement.")
     else:
-        st.caption("Enter a key + model to enable external interpretation/drafting. The key is not required for any solver or statistical module.")
+        st.caption("The whole application still works without AI. Configure a hosted key or a reachable Ollama model only when you want AI-level synthesis.")
 
     st.divider()
     pages = [
@@ -1893,7 +1925,7 @@ elif page == "13. Methods & reproducibility":
         "Monte Carlo": "Wild/residual/parametric OLS simulation with full coefficient draws, bias, Monte Carlo standard errors and percentile intervals; stochastic cost-benefit R&D portfolio selection with selection probabilities and downside distributions.",
         "Research Command Chair": "Free/offline one-screen question-batch autopilot plus retained advanced XLSX/PDF protocol builder; editable selected/all-question sets; feasibility verdicts; exact evidence scoping; safe equations; descriptive, correlation, OLS, Monte Carlo, normality, outlier, group-test, PCA, reliability, clustering, prediction, ARIMA and panel execution when required variable roles are mapped; genuine paper prose and complete analytical bundles.",
         "Frontier methods": "Multi-objective Pareto and robust binary portfolio optimisation; cross-fitted doubly robust AIPW causal estimation with overlap/balance diagnostics; offline Bayesian posterior and posterior-predictive regression; SHAP TreeExplainer with deterministic fallback; DuckDB read-only acceleration and Arrow/Parquet interchange.",
-        "Agentic Research Mode": "Standalone approval-gated research runner that works without an AI API: local PDF evidence/source indexing, up to 150 research questions per batch, deterministic routing, data audit, descriptive/correlation/OLS/group/PCA/clustering execution, offline discussion/conclusions and a near-submission bundle with DOCX, XLSX, JSON, HTML, 600-dpi/vector graphics and reproducibility manifest. Optional user-key LLM synthesis is post-computation only.",
+        "Agentic Research Mode": "Standalone approval-gated research runner that works without AI but can now use Gemini, Groq, Claude, Ollama or a compatible model for a second-pass evidence synthesis. It indexes PDF evidence by page, generates up to 150 research questions, executes bounded deterministic analyses, maintains multi-turn research conversation, and can rewrite Abstract/Results/Discussion/Conclusion/run-specific Limitations from retrieved computed rows without changing any numerical result. The submission bundle includes DOCX, XLSX, JSON, HTML, 600-dpi/vector graphics and reproducibility manifest.",
         "Outputs": "Exact tables, XLSX/CSV/Parquet, self-contained HTML/JavaScript report, 600-dpi PNG and vector SVG/PDF figures in colour and black-and-white, JSON manifests and near-submission DOCX bundles.",
     }
     guided_dataframe("Methods and capabilities", pd.DataFrame(methods.items(), columns=["family", "capabilities"]))
@@ -1907,8 +1939,8 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.8.1 documentation library")
-    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.1 is strictly additive over v5.8.0. It upgrades Agentic Research Mode with evidence-aware semantic routing, multi-turn conversation and optional local Ollama AI while preserving every earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capability.")
+    st.subheader("Version 5.8.2 documentation library")
+    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.2 is strictly additive over v5.8.1. It adds hosted free-tier Gemini/Groq routes, global no-key Ollama configuration and an AI synthesis pass that rewrites Agentic results/discussion/conclusions from retrieved computed evidence. Version 5.8.1 was strictly additive over v5.8.0. It upgrades Agentic Research Mode with evidence-aware semantic routing, multi-turn conversation and optional local Ollama AI while preserving every earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capability.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
@@ -1925,6 +1957,7 @@ elif page == "13. Methods & reproducibility":
         ("GAMS-compatible ITA Studio guide", "GAMS_COMPATIBLE_ITA_STUDIO_v5_7_0.md", "text/markdown"),
         ("User-key LLM co-pilot guide", "LLM_COPILOT_v5_7_0.md", "text/markdown"),
         ("Frontier methods + Agentic mode guide", "FRONTIER_AGENTIC_GUIDE_v5_8_0.md", "text/markdown"),
+        ("AI / LLM Research Engine v5.8.2", "AI_RESEARCH_ENGINE_v5_8_2.md", "text/markdown"),
     ]
     available_docs = [(label, BASE / "documentation" / filename, mime) for label, filename, mime in documentation_files if (BASE / "documentation" / filename).exists()]
     for row_start in range(0, len(available_docs), 2):

@@ -695,6 +695,103 @@ USER QUESTION
     return ollama_text_reply(prompt, model, endpoint=endpoint, timeout=timeout, temperature=0.12)
 
 
+def _parse_synthesis_json(text: str) -> dict[str, Any]:
+    raw = str(text).strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    # Tolerate a short preamble/epilogue around a JSON object.
+    start, end = raw.find("{"), raw.rfind("}")
+    if 0 <= start < end:
+        try:
+            obj = json.loads(raw[start:end + 1])
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+    raise RuntimeError("The selected AI returned prose rather than the requested structured synthesis. Retry or use a different model.")
+
+
+def refine_run_with_ai(
+    run: AgenticRun,
+    reply_fn: Callable[[str], str],
+    *,
+    provider_label: str = "AI",
+) -> AgenticRun:
+    """Rewrite the draft sections from the *actual computed run* and PDF evidence.
+
+    The deterministic tables remain the source of truth. The function never changes
+    model outputs; it only adds an evidence-grounded synthesis layer used by the
+    paper/report exports.
+    """
+    context = agent_context_text(
+        run,
+        "strongest and weakest findings exact model results literature evidence discussion conclusion limitations",
+        max_chars=70000,
+    )
+    prompt = f"""You are refining a research draft from a completed deterministic analytical run.
+
+RESEARCH GOAL
+{run.plan.goal}
+
+COMPUTED RESULTS AND UPLOADED-PDF EVIDENCE
+{context}
+
+TASK
+Create a specific, evidence-grounded synthesis. Do NOT write generic statements such as 'the strongest defensible conclusions are those supported by the tables'. Instead name the actual variables, coefficients, correlations, confidence intervals, p-values, diagnostics, groups, sources and pages that support each statement. Do not invent bibliographic facts or causal claims. If a requested section is not supported, state the exact missing model/design rather than filling it with boilerplate.
+
+Return ONLY one JSON object with these keys:
+- abstract: 180-300 words
+- results: detailed results narrative grounded in exact computed values
+- discussion: interpret the actual findings and relate them to retrieved PDF evidence by document/page where available
+- conclusion: concise substantive conclusion that directly answers the research goal
+- limitations: limitations specific to THIS run, variables, models and evidence
+- key_findings: array of 5-12 objects, each with finding, evidence, strength, and safe_inference
+
+Keep association, prediction, optimisation and causal inference explicitly distinct. Preserve every supplied number exactly.
+"""
+    parsed = _parse_synthesis_json(reply_fn(prompt))
+    required = ["abstract", "results", "discussion", "conclusion", "limitations"]
+    missing = [k for k in required if not str(parsed.get(k, "")).strip()]
+    if missing:
+        raise RuntimeError("AI synthesis omitted required section(s): " + ", ".join(missing))
+
+    # Preserve deterministic drafts for audit/reproducibility.
+    for key in ["discussion", "conclusion", "limitations"]:
+        if key in run.narratives and f"offline_{key}" not in run.narratives:
+            run.narratives[f"offline_{key}"] = run.narratives[key]
+    run.narratives["abstract"] = str(parsed["abstract"]).strip()
+    run.narratives["results"] = str(parsed["results"]).strip()
+    run.narratives["discussion"] = str(parsed["discussion"]).strip()
+    run.narratives["conclusion"] = str(parsed["conclusion"]).strip()
+    run.narratives["limitations"] = str(parsed["limitations"]).strip()
+
+    findings = parsed.get("key_findings", [])
+    if isinstance(findings, list):
+        clean = []
+        for item in findings:
+            if isinstance(item, dict) and item.get("finding"):
+                clean.append({
+                    "finding": str(item.get("finding", "")),
+                    "evidence": str(item.get("evidence", "")),
+                    "strength": str(item.get("strength", "")),
+                    "safe_inference": str(item.get("safe_inference", "")),
+                })
+        if clean:
+            run.tables["AI synthesis key findings"] = pd.DataFrame(clean)
+
+    run.manifest["ai_synthesis"] = {
+        "enabled": True,
+        "provider": provider_label,
+        "scope": "narrative synthesis only; deterministic numerical tables unchanged",
+    }
+    return run
+
+
 def _parse_rq_json(text: str) -> list[dict[str, Any]]:
     raw = str(text).strip()
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
@@ -894,7 +991,7 @@ def run_agentic_workflow(
     interactive.update(ols_interactive)
     narratives = _offline_narrative(tables, plan)
     manifest = {
-        "version": "5.8.1",
+        "version": "5.8.2",
         "mode": "offline deterministic agentic workflow",
         "goal": plan.goal,
         "mappings": plan.mappings,
@@ -925,6 +1022,10 @@ def _paper_markdown(run: AgenticRun, title: str = "Agentic Research Draft") -> s
 
 Near-submission analytical draft generated by Makryvelios Agentic Research Mode. Human verification of claims, references, formatting and institutional requirements remains mandatory.
 
+## Abstract
+
+{run.narratives.get('abstract', '[AI synthesis not run; see deterministic outputs and discussion below.]')}
+
 ## Research objective
 
 {run.plan.goal or '[Define the principal research objective]'}
@@ -939,7 +1040,7 @@ The workflow audited the active dataset, produced descriptive and association ev
 
 ## Results
 
-{run.narratives.get('discussion','')}
+{run.narratives.get('results', run.narratives.get('discussion',''))}
 
 ## Discussion
 
@@ -984,6 +1085,8 @@ def _agentic_docx_bytes(run: AgenticRun, title: str) -> bytes:
     p = document.add_paragraph()
     r = p.add_run("Near-submission analytical draft generated by Makryvelios Agentic Research Mode. Human verification is required before submission.")
     r.bold = True
+    document.add_heading("Abstract", level=1)
+    document.add_paragraph(run.narratives.get("abstract", "AI synthesis was not run; the package therefore retains the deterministic first-pass narrative."))
     document.add_heading("Research objective", level=1)
     document.add_paragraph(run.plan.goal or "[Define the principal research objective]")
     document.add_heading("Candidate research questions", level=1)
@@ -1002,7 +1105,7 @@ def _agentic_docx_bytes(run: AgenticRun, title: str) -> bytes:
         cells = plan_table.add_row().cells
         for i, key in enumerate(["step", "action", "engine", "output"]): cells[i].text = str(item.get(key, ""))
     document.add_heading("Results", level=1)
-    document.add_paragraph(run.narratives.get("discussion", ""))
+    document.add_paragraph(run.narratives.get("results", run.narratives.get("discussion", "")))
     for table_name in ["OLS coefficients", "OLS fit", "OLS diagnostics", "Top correlations", "Group tests", "PCA variance"]:
         table = run.tables.get(table_name, pd.DataFrame())
         if table is None or table.empty:
@@ -1049,7 +1152,9 @@ def _agentic_docx_bytes(run: AgenticRun, title: str) -> bytes:
 
 def _html_report(run: AgenticRun, title: str) -> bytes:
     sections = [f"<h1>{html.escape(title)}</h1>", "<p><b>Near-submission analytical draft; human verification required.</b></p>"]
+    sections.append("<h2>Abstract</h2><p>" + html.escape(run.narratives.get("abstract", "AI synthesis not run.")).replace("\n", "<br>") + "</p>")
     sections.append(f"<h2>Research objective</h2><p>{html.escape(run.plan.goal)}</p>")
+    sections.append("<h2>Results</h2><p>" + html.escape(run.narratives.get("results", run.narratives.get("discussion", ""))).replace("\n", "<br>") + "</p>")
     sections.append("<h2>Discussion</h2><p>" + html.escape(run.narratives.get("discussion", "")).replace("\n", "<br>") + "</p>")
     sections.append("<h2>Conclusion</h2><p>" + html.escape(run.narratives.get("conclusion", "")).replace("\n", "<br>") + "</p>")
     for name, table in run.tables.items():
@@ -1081,7 +1186,7 @@ def agentic_submission_package(run: AgenticRun, title: str = "Agentic Research D
         for name, payload in run.interactive_html.items():
             archive.writestr(f"interactive/{name}", payload)
         archive.writestr("README.txt", (
-            "Makryvelios Agentic Research Mode v5.8.1\n\n"
+            "Makryvelios Agentic Research Mode v5.8.2\n\n"
             "This package is generated locally from the configured data and PDF evidence.\n"
             "Numerical outputs do not require an external AI API.\n"
             "The draft is designed to be close to submission-ready but must be checked by a human researcher before submission.\n"

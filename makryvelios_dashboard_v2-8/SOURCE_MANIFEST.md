@@ -98,3 +98,12 @@ The application reproduces the model families and provides auditable exports. Nu
 - `agentic_ui.py`: unified multi-turn conversation with Smart Offline / Local Ollama / External API engines.
 - `documentation/AGENTIC_INTELLIGENCE_GUIDE_v5_8_1.md`: operation and scientific boundaries.
 - No pre-v5.8.1 numerical engine is removed or replaced.
+
+
+## AI synthesis and free/local provider routes — v5.8.2
+
+- `llm_bridge.py` adds native provider routing for Google Gemini and local Ollama and a Groq OpenAI-compatible free-plan route while retaining Claude and generic OpenAI-compatible support.
+- `agentic_research.py` retains deterministic tables as the source of truth and adds a second-pass AI synthesis that can rewrite Abstract, Results, Discussion, Conclusion and run-specific Limitations from retrieved computed rows/PDF evidence.
+- The original offline narrative is preserved in the run state for audit; AI synthesis never mutates statistical or optimisation outputs.
+- `agentic_ui.py` can automatically perform the synthesis pass after approved deterministic execution and exposes a one-click full-draft refinement action.
+- Free-tier provider use remains subject to external quotas/terms; the UI surfaces a specific privacy warning for hosted free-tier processing.

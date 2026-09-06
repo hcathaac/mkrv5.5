@@ -1,3 +1,14 @@
+# v5.8.2 — 2026-09-06
+
+- Strictly additive AI-synthesis hotfix over v5.8.1; no existing analytical, optimisation, mapping, export or Agentic capability removed.
+- Expanded the persistent AI/LLM panel with Google Gemini (free tier available), Groq (free plan available), Ollama Local (no API key), Anthropic Claude and generic OpenAI-compatible endpoints.
+- Added provider-native REST handling for Gemini and Ollama and a Groq OpenAI-compatible route, without adding a mandatory SDK dependency.
+- Agentic Research Mode now defaults to the configured AI engine when one is available and can automatically run an evidence-grounded synthesis pass after deterministic computation.
+- The AI synthesis pass rewrites Abstract, Results, Discussion, Conclusion and run-specific Limitations from retrieved computed rows and uploaded-PDF page evidence; deterministic numerical tables are never altered.
+- Added a one-click "REFINE / REWRITE ENTIRE DRAFT WITH SELECTED AI" action and retained the original deterministic narrative for audit.
+- The DOCX/HTML/Markdown submission outputs now use the AI-refined Results/Discussion/Conclusion sections when available and preserve the offline draft in the run state.
+- Added explicit privacy notice for Gemini free-tier usage and no-key/local deployment guidance for Ollama.
+
 # v5.8.1 — 2026-09-06
 
 - Strictly additive Agentic intelligence hotfix over v5.8.0; no existing capability removed.

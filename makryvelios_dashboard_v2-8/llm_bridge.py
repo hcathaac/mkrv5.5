@@ -1,8 +1,15 @@
-"""Optional user-key LLM bridge for interpretation and drafting.
+"""Optional LLM bridge for interpretation, synthesis and drafting.
 
-Numerical analysis remains deterministic and local to the application.  External
+Numerical analysis remains deterministic and local to the application. External
 LLMs receive only the evidence text explicitly supplied by the calling workflow.
 API keys are held in Streamlit session state and are never written to exports.
+
+Supported routes:
+- Anthropic Claude
+- Google Gemini (free tier available for selected models)
+- Groq (free plan available; OpenAI-compatible chat endpoint)
+- Ollama Local (no API key)
+- generic OpenAI-compatible endpoints
 """
 from __future__ import annotations
 
@@ -25,9 +32,11 @@ class LLMConfig:
 def configured(config: Mapping[str, Any] | LLMConfig | None) -> bool:
     if config is None:
         return False
-    if isinstance(config, LLMConfig):
-        return bool(config.api_key.strip() and config.model.strip())
-    return bool(str(config.get("api_key", "")).strip() and str(config.get("model", "")).strip())
+    cfg = _as_config(config) if not isinstance(config, LLMConfig) else config
+    provider = cfg.provider.strip().lower()
+    if provider.startswith("ollama"):
+        return bool(cfg.model.strip())
+    return bool(cfg.api_key.strip() and cfg.model.strip())
 
 
 def _as_config(config: Mapping[str, Any] | LLMConfig) -> LLMConfig:
@@ -51,10 +60,18 @@ def llm_reply(
 ) -> str:
     cfg = _as_config(config)
     if not configured(cfg):
-        raise ValueError("Enter an LLM API key and model first.")
+        raise ValueError("Configure an AI model first. Hosted providers require an API key; Ollama Local does not.")
     provider = cfg.provider.strip().lower()
     if provider.startswith("anthropic"):
         return _anthropic_reply(prompt, cfg, system=system, timeout=timeout)
+    if provider.startswith("google") or provider.startswith("gemini"):
+        return _gemini_reply(prompt, cfg, system=system, timeout=timeout)
+    if provider.startswith("groq"):
+        if not cfg.base_url.strip():
+            cfg.base_url = "https://api.groq.com/openai/v1"
+        return _openai_compatible_reply(prompt, cfg, system=system, timeout=timeout)
+    if provider.startswith("ollama"):
+        return _ollama_reply(prompt, cfg, system=system, timeout=timeout)
     if provider.startswith("openai") or "compatible" in provider:
         return _openai_compatible_reply(prompt, cfg, system=system, timeout=timeout)
     raise ValueError(f"Unsupported LLM provider: {cfg.provider}")
@@ -90,6 +107,57 @@ def _anthropic_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) 
     return text
 
 
+def _gemini_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> str:
+    model = cfg.model.strip() or "gemini-3.7-flash"
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    response = requests.post(
+        endpoint,
+        headers={"x-goog-api-key": cfg.api_key, "Content-Type": "application/json"},
+        json={
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": str(prompt)}]}],
+            "generationConfig": {
+                "maxOutputTokens": max(256, min(int(cfg.max_tokens), 12000)),
+                "temperature": 0.18,
+            },
+        },
+        timeout=timeout,
+    )
+    if not response.ok:
+        raise RuntimeError(f"Gemini API returned HTTP {response.status_code}: {response.text[:1200]}")
+    payload = response.json()
+    candidates = payload.get("candidates", [])
+    if not candidates:
+        feedback = payload.get("promptFeedback", {})
+        raise RuntimeError(f"Gemini API returned no candidates. {feedback}")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text = "\n".join(str(p.get("text", "")) for p in parts if isinstance(p, dict) and p.get("text")).strip()
+    if not text:
+        raise RuntimeError("Gemini API returned no text content.")
+    return text
+
+
+def _ollama_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> str:
+    base = cfg.base_url.strip().rstrip("/") or "http://127.0.0.1:11434"
+    endpoint = base + "/api/generate"
+    response = requests.post(
+        endpoint,
+        json={
+            "model": cfg.model,
+            "prompt": f"SYSTEM\n{system}\n\nUSER\n{prompt}",
+            "stream": False,
+            "options": {"temperature": 0.12, "num_predict": max(256, min(int(cfg.max_tokens), 12000))},
+        },
+        timeout=timeout,
+    )
+    if not response.ok:
+        raise RuntimeError(f"Ollama returned HTTP {response.status_code}: {response.text[:1200]}")
+    text = str(response.json().get("response", "")).strip()
+    if not text:
+        raise RuntimeError("Ollama returned no response text.")
+    return text
+
+
 def _openai_compatible_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> str:
     base = cfg.base_url.strip().rstrip("/") or "https://api.openai.com/v1"
     endpoint = base if base.endswith("/chat/completions") else base + "/chat/completions"
@@ -99,6 +167,7 @@ def _openai_compatible_reply(prompt: str, cfg: LLMConfig, *, system: str, timeou
         json={
             "model": cfg.model,
             "max_tokens": max(256, min(int(cfg.max_tokens), 12000)),
+            "temperature": 0.15,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
