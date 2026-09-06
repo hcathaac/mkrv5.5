@@ -1,3 +1,13 @@
+# v5.8.3 — 2026-09-06
+
+- Added Gemini schema-constrained structured output for Agentic research-question generation.
+- Hardened the RQ parser for fenced/embedded JSON, wrapped objects, JSONL and numbered/plain-text question lists.
+- Added automatic constrained retry for malformed model output.
+- Added deterministic data-aware recovery so an AI formatting failure can no longer abort the full research-question batch.
+- Added generation diagnostics showing AI-grounded vs recovered questions and parse-repair events.
+- Added **TEST AI CONNECTION** in the persistent AI/LLM panel.
+- No previous capability removed or renamed.
+
 # v5.8.2 — 2026-09-06
 
 - Strictly additive AI-synthesis hotfix over v5.8.1; no existing analytical, optimisation, mapping, export or Agentic capability removed.

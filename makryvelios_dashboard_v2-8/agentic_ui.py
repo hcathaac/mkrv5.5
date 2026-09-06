@@ -13,6 +13,7 @@ from agentic_research import (
     extract_source_evidence,
     generate_questions_with_ai,
     generate_research_questions,
+    RQ_RESPONSE_SCHEMA,
     literature_key_terms,
     offline_agent_reply,
     ollama_agent_reply,
@@ -184,16 +185,26 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                     config = st.session_state.get("llm_config", {})
                     if not llm_configured(config):
                         raise ValueError("Configure the external LLM in the sidebar or select another engine.")
-                    system = "Generate only grounded, specific research questions from the supplied schema, observed relationship leads and PDF evidence. Never invent variables or source claims. Return the requested JSON only."
-                    reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=150)
-                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=25)
+                    system = "Generate only grounded, specific research questions from the supplied schema, observed relationship leads and PDF evidence. Never invent variables or source claims. Return the requested structured output only."
+                    provider_name = str(config.get("provider", ""))
+                    schema = RQ_RESPONSE_SCHEMA if provider_name.lower().startswith(("google", "gemini")) else None
+                    reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=150, response_schema=schema)
+                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=20)
                     source = f"Configured AI · {config.get('provider')} · {config.get('model')}"
                 else:
                     rqs = generate_research_questions(df, pdf_pages, limit=int(rq_count))
                     source = "Smart deterministic data-aware generator"
             st.session_state["agentic_rqs"] = rqs
-            st.session_state["agentic_rq_source"] = source
-            st.success(f"Generated {len(rqs)} research questions using {source}.")
+            ai_count = int(getattr(rqs, "attrs", {}).get("ai_generated", len(rqs) if ai_engine_selected else 0))
+            recovery_count = int(getattr(rqs, "attrs", {}).get("deterministic_recovery", 0))
+            parse_failures = int(getattr(rqs, "attrs", {}).get("parse_failures", 0))
+            source_detail = source
+            if recovery_count:
+                source_detail += f" + deterministic recovery ({recovery_count})"
+            st.session_state["agentic_rq_source"] = source_detail
+            st.success(f"Generated {len(rqs)} research questions. AI-grounded: {ai_count}; deterministic recovery: {recovery_count}.")
+            if parse_failures:
+                st.info(f"The selected model returned {parse_failures} malformed structured-response batch(es); the agent repaired/retried them automatically instead of failing the workflow.")
         except Exception as exc:
             st.error(f"Question generation failed: {exc}")
     rqs = st.session_state.get("agentic_rqs")

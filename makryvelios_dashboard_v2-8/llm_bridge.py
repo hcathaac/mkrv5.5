@@ -57,6 +57,7 @@ def llm_reply(
     *,
     system: str = "You are a scientific research assistant. Preserve numerical evidence exactly, distinguish computed results from interpretation, and never invent missing findings.",
     timeout: int = 90,
+    response_schema: Mapping[str, Any] | None = None,
 ) -> str:
     cfg = _as_config(config)
     if not configured(cfg):
@@ -65,7 +66,7 @@ def llm_reply(
     if provider.startswith("anthropic"):
         return _anthropic_reply(prompt, cfg, system=system, timeout=timeout)
     if provider.startswith("google") or provider.startswith("gemini"):
-        return _gemini_reply(prompt, cfg, system=system, timeout=timeout)
+        return _gemini_reply(prompt, cfg, system=system, timeout=timeout, response_schema=response_schema)
     if provider.startswith("groq"):
         if not cfg.base_url.strip():
             cfg.base_url = "https://api.groq.com/openai/v1"
@@ -107,22 +108,30 @@ def _anthropic_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) 
     return text
 
 
-def _gemini_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> str:
+def _gemini_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int, response_schema: Mapping[str, Any] | None = None) -> str:
     model = cfg.model.strip() or "gemini-3.7-flash"
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    response = requests.post(
-        endpoint,
-        headers={"x-goog-api-key": cfg.api_key, "Content-Type": "application/json"},
-        json={
+
+    def make_payload(schema: Mapping[str, Any] | None) -> dict:
+        generation = {
+            "maxOutputTokens": max(256, min(int(cfg.max_tokens), 12000)),
+            "temperature": 0.18,
+        }
+        if schema:
+            generation.update({"responseMimeType": "application/json", "responseSchema": dict(schema)})
+        return {
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": str(prompt)}]}],
-            "generationConfig": {
-                "maxOutputTokens": max(256, min(int(cfg.max_tokens), 12000)),
-                "temperature": 0.18,
-            },
-        },
-        timeout=timeout,
-    )
+            "generationConfig": generation,
+        }
+
+    headers = {"x-goog-api-key": cfg.api_key, "Content-Type": "application/json"}
+    response = requests.post(endpoint, headers=headers, json=make_payload(response_schema), timeout=timeout)
+    # Structured outputs are preferred for agentic workflows. If a particular
+    # model/API revision rejects the schema fields, retry once as ordinary text
+    # so the tolerant downstream parser can still recover useful content.
+    if not response.ok and response_schema is not None and int(response.status_code) in {400, 404, 422}:
+        response = requests.post(endpoint, headers=headers, json=make_payload(None), timeout=timeout)
     if not response.ok:
         raise RuntimeError(f"Gemini API returned HTTP {response.status_code}: {response.text[:1200]}")
     payload = response.json()
@@ -135,7 +144,6 @@ def _gemini_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> 
     if not text:
         raise RuntimeError("Gemini API returned no text content.")
     return text
-
 
 def _ollama_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> str:
     base = cfg.base_url.strip().rstrip("/") or "http://127.0.0.1:11434"

@@ -127,7 +127,7 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .gams-badge{display:inline-block;padding:.24rem .55rem;border-radius:999px;background:#0B1F3A;border:1px solid #38BDF8;color:#F8FAFC!important;font-weight:800;font-size:.78rem}
 
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.8.2 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.8.3 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -363,6 +363,20 @@ with st.sidebar:
     }
     if llm_configured(st.session_state["llm_config"]):
         st.success("AI engine configured for this session. Agentic Mode can now use it for evidence-grounded synthesis, conversation, RQ generation and paper refinement.")
+        if st.button("TEST AI CONNECTION", key=f"global_llm_test_{llm_provider}"):
+            try:
+                probe = llm_reply(
+                    "Return exactly CONNECTION_OK and no other text.",
+                    st.session_state["llm_config"],
+                    system="This is a connectivity test. Return exactly CONNECTION_OK.",
+                    timeout=30,
+                )
+                if "CONNECTION_OK" in str(probe):
+                    st.success(f"Connection successful: {llm_provider} · {llm_model.strip()}")
+                else:
+                    st.warning("The provider responded, but not with the expected connectivity token. The API route is reachable; inspect the model response/settings if generation behaves unexpectedly.")
+            except Exception as exc:
+                st.error(f"AI connection test failed: {exc}")
     else:
         st.caption("The whole application still works without AI. Configure a hosted key or a reachable Ollama model only when you want AI-level synthesis.")
 
@@ -1939,8 +1953,8 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.8.2 documentation library")
-    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.2 is strictly additive over v5.8.1. It adds hosted free-tier Gemini/Groq routes, global no-key Ollama configuration and an AI synthesis pass that rewrites Agentic results/discussion/conclusions from retrieved computed evidence. Version 5.8.1 was strictly additive over v5.8.0. It upgrades Agentic Research Mode with evidence-aware semantic routing, multi-turn conversation and optional local Ollama AI while preserving every earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capability.")
+    st.subheader("Version 5.8.3 documentation library")
+    st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.3 is strictly additive over v5.8.2. It hardens AI research-question generation with Gemini structured JSON output, tolerant parsing, retry/recovery and deterministic fallback, and adds a provider connectivity test. Version 5.8.2 added hosted free-tier Gemini/Groq routes, global no-key Ollama configuration and an AI synthesis pass that rewrites Agentic results/discussion/conclusions from retrieved computed evidence. Version 5.8.1 was strictly additive over v5.8.0. It upgrades Agentic Research Mode with evidence-aware semantic routing, multi-turn conversation and optional local Ollama AI while preserving every earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capability.")
     documentation_files = [
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
@@ -1957,7 +1971,7 @@ elif page == "13. Methods & reproducibility":
         ("GAMS-compatible ITA Studio guide", "GAMS_COMPATIBLE_ITA_STUDIO_v5_7_0.md", "text/markdown"),
         ("User-key LLM co-pilot guide", "LLM_COPILOT_v5_7_0.md", "text/markdown"),
         ("Frontier methods + Agentic mode guide", "FRONTIER_AGENTIC_GUIDE_v5_8_0.md", "text/markdown"),
-        ("AI / LLM Research Engine v5.8.2", "AI_RESEARCH_ENGINE_v5_8_2.md", "text/markdown"),
+        ("AI / LLM Research Engine v5.8.3", "AI_RESEARCH_ENGINE_v5_8_3.md", "text/markdown"),
     ]
     available_docs = [(label, BASE / "documentation" / filename, mime) for label, filename, mime in documentation_files if (BASE / "documentation" / filename).exists()]
     for row_start in range(0, len(available_docs), 2):

@@ -33,3 +33,8 @@ The deployed GitHub folder is `makryvelios_dashboard_v2-8` and the Streamlit mai
 ## Dependency note
 
 The v5.8.0 `requirements.txt` adds DuckDB, PyArrow and SHAP. Reboot after the GitHub commit so Community Cloud installs the updated requirements.
+
+
+## v5.8.3 hotfix
+
+Upload the v5.8.3 hotfix into the existing deployed folder. Confirm the sidebar exposes **TEST AI CONNECTION** and that Agentic Gemini RQ generation reports recovery diagnostics rather than failing on malformed structured output.

@@ -1,5 +1,8 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.8.2
+# Makryvelios Research Analytics & Econometrics Command Centre v5.8.3
 
+
+
+Version 5.8.3 is a strictly additive reliability hotfix over v5.8.2. Gemini research-question generation now requests schema-constrained JSON from the API rather than relying on prompt compliance alone. The agentic parser also accepts fenced/embedded JSON, wrapped arrays, JSONL and numbered question lists; malformed batches are retried and any remaining slots are recovered with the deterministic data-aware generator instead of failing the workflow. The persistent AI panel now includes a **TEST AI CONNECTION** action so authentication/model errors are distinguished from downstream parsing errors. No existing analytical, GAMS/ITA, mapping, Frontier, Research Chair, submission or AI-synthesis capability is removed.
 
 Version 5.8.2 is a strictly additive AI-synthesis upgrade over v5.8.1. The persistent AI panel now supports **Google Gemini (free tier available)**, **Groq (free plan available)**, **Ollama Local (no API key)**, Anthropic Claude and generic OpenAI-compatible endpoints. Agentic Research Mode can run an optional second-pass synthesis over the deterministic tables and uploaded-PDF evidence, producing a specific Abstract, Results, Discussion, Conclusion and run-specific Limitations rather than the previous generic first-pass narrative. The deterministic tables/models remain unchanged and are the evidence source of truth. The complete DOCX/HTML/Markdown submission package automatically uses the refined narrative when the synthesis pass succeeds.
 

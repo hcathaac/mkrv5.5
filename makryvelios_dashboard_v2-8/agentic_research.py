@@ -793,43 +793,126 @@ Keep association, prediction, optimisation and causal inference explicitly disti
 
 
 def _parse_rq_json(text: str) -> list[dict[str, Any]]:
-    raw = str(text).strip()
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
-    candidates = []
+    """Parse AI-generated research questions defensively.
+
+    Accepts strict JSON, fenced JSON, objects wrapping arrays, JSON embedded in
+    surrounding prose, JSONL, and numbered/bulleted plain-text questions.  This
+    function deliberately degrades gracefully because hosted/local models can
+    ignore formatting instructions even when the semantic content is useful.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+    raw = re.sub(r"```(?:json|javascript|js)?", "", raw, flags=re.I).replace("```", "").strip()
+
+    candidates: list[Any] = []
+
+    def unpack(obj: Any) -> None:
+        if isinstance(obj, list):
+            candidates.extend(obj)
+        elif isinstance(obj, dict):
+            for key in ("questions", "research_questions", "items", "data", "results"):
+                value = obj.get(key)
+                if isinstance(value, list):
+                    candidates.extend(value)
+                    return
+            # A single question object is also valid.
+            if obj.get("research_question") or obj.get("question"):
+                candidates.append(obj)
+
+    # 1) Whole-response JSON.
     try:
-        obj = json.loads(raw)
-        candidates = obj if isinstance(obj, list) else obj.get("questions", []) if isinstance(obj, dict) else []
+        unpack(json.loads(raw))
     except Exception:
+        pass
+
+    # 2) Locate an embedded JSON array/object, tolerating explanatory text.
+    if not candidates:
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"[\[{]", raw):
+            try:
+                obj, _ = decoder.raw_decode(raw[match.start():])
+                unpack(obj)
+                if candidates:
+                    break
+            except Exception:
+                continue
+
+    # 3) JSONL / one-object-per-line.
+    if not candidates:
         for line in raw.splitlines():
             line = line.strip().rstrip(",")
             if not line:
                 continue
             try:
-                item = json.loads(line)
-                if isinstance(item, dict):
-                    candidates.append(item)
+                unpack(json.loads(line))
             except Exception:
-                pass
-    out = []
+                continue
+
+    # 4) Plain numbered/bulleted question list fallback.  Preserve useful model
+    #    output instead of failing the entire batch merely because JSON was not
+    #    respected.
+    if not candidates:
+        for line in raw.splitlines():
+            line = re.sub(r"^\s*(?:[-*•]|\d{1,3}[.)]|RQ\s*\d{1,3}[:.)-]?)\s*", "", line, flags=re.I).strip()
+            if not line:
+                continue
+            # Extract a question-looking segment from prose/list lines.
+            if "?" in line:
+                q = line[: line.find("?") + 1].strip(' "\'')
+                if len(q) >= 18:
+                    candidates.append({"research_question": q})
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for item in candidates:
-        q = str(item.get("research_question") or item.get("question") or "").strip()
+        if isinstance(item, str):
+            item = {"research_question": item}
+        if not isinstance(item, dict):
+            continue
+        q = str(item.get("research_question") or item.get("question") or item.get("rq") or "").strip()
+        q = re.sub(r"\s+", " ", q).strip()
         if not q:
             continue
+        key = _normalise_query(q)
+        if not key or key in seen:
+            continue
+        seen.add(key)
         priority_raw = item.get("priority", 2)
         try:
-            priority = int(priority_raw)
+            priority = int(float(priority_raw))
         except Exception:
             priority = 2
+        priority = min(3, max(1, priority))
+        variables = item.get("variables", "")
+        if isinstance(variables, (list, tuple)):
+            variables = "; ".join(map(str, variables))
         out.append({
             "research_question": q,
-            "method_family": str(item.get("method_family") or item.get("method") or "AI-grounded"),
-            "variables": str(item.get("variables") or ""),
+            "method_family": str(item.get("method_family") or item.get("method") or item.get("analysis") or "AI-grounded"),
+            "variables": str(variables or ""),
             "priority": priority,
-            "rationale": str(item.get("rationale") or item.get("why") or ""),
-            "source_basis": str(item.get("source_basis") or item.get("evidence") or ""),
+            "rationale": str(item.get("rationale") or item.get("why") or item.get("reason") or ""),
+            "source_basis": str(item.get("source_basis") or item.get("evidence") or item.get("source") or ""),
         })
     return out
 
+
+RQ_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "research_question": {"type": "string"},
+            "method_family": {"type": "string"},
+            "variables": {"type": "string"},
+            "priority": {"type": "integer"},
+            "rationale": {"type": "string"},
+            "source_basis": {"type": "string"},
+        },
+        "required": ["research_question", "method_family", "variables", "priority", "rationale", "source_basis"],
+    },
+}
 
 def ai_research_question_prompt(df: pd.DataFrame, pdf_pages: pd.DataFrame | None, goal: str, count: int, existing: Sequence[str] = ()) -> str:
     numeric = list(df.select_dtypes(include=np.number).columns)
@@ -863,15 +946,46 @@ QUESTIONS ALREADY GENERATED (do not repeat): {json.dumps(list(existing)[-80:], e
 Return ONLY a JSON array. Each object must contain: research_question, method_family, variables, priority (1-3), rationale, source_basis."""
 
 
-def generate_questions_with_ai(df: pd.DataFrame, pdf_pages: pd.DataFrame | None, goal: str, total: int, reply_fn: Callable[[str], str], batch_size: int = 25) -> pd.DataFrame:
+def generate_questions_with_ai(
+    df: pd.DataFrame,
+    pdf_pages: pd.DataFrame | None,
+    goal: str,
+    total: int,
+    reply_fn: Callable[[str], str],
+    batch_size: int = 25,
+) -> pd.DataFrame:
+    """Generate an AI-grounded RQ bank with resilient parsing and recovery.
+
+    The function never discards a usable batch because a model ignored JSON
+    formatting.  If an AI batch remains unusable after a constrained retry, the
+    remaining slots are filled by the deterministic data-aware generator and the
+    DataFrame attrs record how much came from each path.
+    """
     total = min(max(1, int(total)), 200)
-    rows, seen = [], set()
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
     attempts = 0
-    while len(rows) < total and attempts < max(3, math.ceil(total / batch_size) * 2):
+    parse_failures = 0
+    max_attempts = max(3, math.ceil(total / max(1, batch_size)) * 3)
+
+    while len(rows) < total and attempts < max_attempts:
         attempts += 1
         need = min(int(batch_size), total - len(rows))
         prompt = ai_research_question_prompt(df, pdf_pages, goal, need, [r["research_question"] for r in rows])
-        parsed = _parse_rq_json(reply_fn(prompt))
+        response_text = reply_fn(prompt)
+        parsed = _parse_rq_json(response_text)
+
+        if not parsed:
+            parse_failures += 1
+            # One compact repair pass. Smaller batches reduce truncation risk and
+            # make even non-schema providers much more reliable.
+            repair_need = min(10, need)
+            repair_prompt = ai_research_question_prompt(df, pdf_pages, goal, repair_need, [r["research_question"] for r in rows]) + (
+                "\n\nFORMAT RECOVERY: Your previous response could not be parsed. Return a raw JSON array only. "
+                "Do not use Markdown fences, headings, commentary or trailing text."
+            )
+            parsed = _parse_rq_json(reply_fn(repair_prompt))
+
         for item in parsed:
             key = _normalise_query(item["research_question"])
             if key and key not in seen:
@@ -879,14 +993,48 @@ def generate_questions_with_ai(df: pd.DataFrame, pdf_pages: pd.DataFrame | None,
                 rows.append(item)
                 if len(rows) >= total:
                     break
-        if not parsed:
+
+        # If two consecutive calls provide nothing useful, stop spending tokens
+        # and recover deterministically rather than exposing an error to the user.
+        if not parsed and parse_failures >= 2:
             break
+
+    ai_count = len(rows)
+
+    # Deterministic recovery preserves functionality under malformed output,
+    # rate limits or weaker local models. It uses actual observed relationships,
+    # not a generic placeholder question bank.
+    if len(rows) < total:
+        fallback = generate_research_questions(df, pdf_pages, limit=total)
+        if isinstance(fallback, pd.DataFrame) and not fallback.empty:
+            for item in fallback.to_dict("records"):
+                q = str(item.get("research_question", "")).strip()
+                key = _normalise_query(q)
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                rows.append({
+                    "research_question": q,
+                    "method_family": str(item.get("method_family", "Deterministic data-aware")),
+                    "variables": str(item.get("variables", "")),
+                    "priority": int(item.get("priority", 2)),
+                    "rationale": str(item.get("rationale", "")),
+                    "source_basis": str(item.get("source_basis", "Active dataset")),
+                })
+                if len(rows) >= total:
+                    break
+
     if not rows:
-        raise RuntimeError("The selected AI engine did not return parseable research questions.")
+        raise RuntimeError("Research-question generation produced no usable questions from either the selected AI engine or the deterministic recovery engine.")
+
     for i, row in enumerate(rows, 1):
         row["rq_id"] = f"RQ{i:03d}"
     cols = ["rq_id", "research_question", "method_family", "variables", "priority", "rationale", "source_basis"]
-    return pd.DataFrame(rows)[cols]
+    frame = pd.DataFrame(rows)[cols]
+    frame.attrs["ai_generated"] = int(ai_count)
+    frame.attrs["deterministic_recovery"] = int(len(frame) - ai_count)
+    frame.attrs["parse_failures"] = int(parse_failures)
+    return frame
 
 def _offline_narrative(tables: dict[str, pd.DataFrame], plan: AgenticPlan) -> dict[str, str]:
     desc = tables.get("Descriptive statistics", pd.DataFrame())
