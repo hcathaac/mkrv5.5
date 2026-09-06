@@ -1022,6 +1022,7 @@ RQ_RESPONSE_SCHEMA: dict[str, Any] = {
             "source_basis": {"type": "string"},
         },
         "required": ["research_question", "method_family", "variables", "priority", "rationale", "source_basis"],
+        "additionalProperties": False,
     },
 }
 

@@ -357,9 +357,20 @@ with st.sidebar:
     elif llm_provider.startswith("Ollama"):
         st.caption("Local Ollama is the privacy-first no-key option. On Streamlit Community Cloud, 127.0.0.1 refers to the cloud server, not your laptop; use a reachable/self-hosted Ollama endpoint or run the app locally.")
     llm_max_tokens = st.number_input("AI maximum output tokens", min_value=256, max_value=12000, value=4000, step=256, key="global_llm_max_tokens")
+    llm_reasoning_effort = "low"
+    if llm_provider.startswith("Groq") and llm_model.strip().lower().startswith("openai/gpt-oss-"):
+        llm_reasoning_effort = st.selectbox(
+            "Groq GPT-OSS reasoning effort",
+            ["low", "medium", "high"],
+            index=0,
+            key="global_groq_reasoning_effort",
+            help="For structured RQ/paper synthesis, Low is recommended so the completion budget is spent on the final JSON instead of hidden reasoning. This never changes provider or model.",
+        )
+        st.caption("GPT-OSS reasoning is separate from final answer text. Low is recommended for JSON extraction/synthesis; use Medium/High manually for harder open-ended reasoning when token limits allow.")
     st.session_state["llm_config"] = {
         "provider": llm_provider, "api_key": llm_api_key if needs_key else "", "model": llm_model.strip(),
         "base_url": llm_base_url.strip(), "max_tokens": int(llm_max_tokens),
+        "reasoning_effort": llm_reasoning_effort,
     }
     if llm_configured(st.session_state["llm_config"]):
         st.success("AI engine configured for this session. Agentic Mode can now use it for evidence-grounded synthesis, conversation, RQ generation and paper refinement.")

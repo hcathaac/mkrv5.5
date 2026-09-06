@@ -1,2 +1,1 @@
-Makryvelios Research Analytics & Econometrics Command Centre
-Version: 5.8.5
+5.8.6

@@ -258,3 +258,12 @@
 - Added exact table workbooks, CSV outputs and self-contained HTML/JavaScript reports.
 - Added optional R replication and constrained allocation/scenario tools.
 - Added deterministic unit tests and a thirteen-module Streamlit render smoke test.
+
+## v5.8.6 — Groq GPT-OSS reasoning/output reliability hotfix (2026-09-06)
+- Preserves all v5.8.5 functionality; additive/compatibility-only change.
+- Fixes Groq GPT-OSS HTTP-200 responses where reasoning consumed the completion budget and `message.content` was empty.
+- Uses `max_completion_tokens` for Groq GPT-OSS, explicit `reasoning_effort`, and `include_reasoning=false` for structured research tasks.
+- Adds a visible Groq GPT-OSS reasoning-effort selector (Low/Medium/High), default Low; no provider or model fallback occurs.
+- Normalises nested JSON schemas for Groq strict Structured Outputs (`additionalProperties=false`, all object properties required).
+- Keeps GPT-OSS instructions in the user turn, following Groq reasoning-model guidance.
+- Empty-content errors now report finish reason, completion usage and whether reasoning was present instead of a generic 'no text content' message.

@@ -27,6 +27,7 @@ class LLMConfig:
     model: str = "claude-sonnet-5"
     base_url: str = ""
     max_tokens: int = 2500
+    reasoning_effort: str = "low"
 
 
 def configured(config: Mapping[str, Any] | LLMConfig | None) -> bool:
@@ -48,6 +49,7 @@ def _as_config(config: Mapping[str, Any] | LLMConfig) -> LLMConfig:
         model=str(config.get("model", "claude-sonnet-5")),
         base_url=str(config.get("base_url", "")),
         max_tokens=int(config.get("max_tokens", 2500)),
+        reasoning_effort=str(config.get("reasoning_effort", "low")),
     )
 
 
@@ -166,27 +168,73 @@ def _ollama_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int) -> 
     return text
 
 
+def _strict_schema_for_groq(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a Groq strict-JSON-schema compatible copy.
+
+    Groq strict structured outputs require every object property to be required
+    and ``additionalProperties`` to be false.  The application schemas already
+    use explicit fields; this normaliser makes nested/array schemas safe without
+    changing the semantic contract.
+    """
+    def normalise(node: Any) -> Any:
+        if isinstance(node, list):
+            return [normalise(x) for x in node]
+        if not isinstance(node, dict):
+            return node
+        out = {k: normalise(v) for k, v in node.items()}
+        typ = out.get("type")
+        if typ == "object" or "properties" in out:
+            props = out.get("properties", {})
+            if isinstance(props, dict):
+                out["properties"] = {k: normalise(v) for k, v in props.items()}
+                out["required"] = list(props.keys())
+                out["additionalProperties"] = False
+        if "items" in out:
+            out["items"] = normalise(out["items"])
+        return out
+    return normalise(dict(schema))
+
+
 def _openai_compatible_reply(prompt: str, cfg: LLMConfig, *, system: str, timeout: int, response_schema: Mapping[str, Any] | None = None, strict_json_schema: bool = False) -> str:
     base = cfg.base_url.strip().rstrip("/") or "https://api.openai.com/v1"
     endpoint = base if base.endswith("/chat/completions") else base + "/chat/completions"
-    payload = {
+    is_groq = "api.groq.com" in base.lower() or cfg.provider.strip().lower().startswith("groq")
+    is_gpt_oss = is_groq and cfg.model.strip().lower().startswith("openai/gpt-oss-")
+
+    # Groq recommends placing GPT-OSS instructions in the user turn and exposes
+    # a separate reasoning budget.  Low reasoning is the correct default for
+    # extraction/structured-output tasks: it preserves completion budget for the
+    # actual JSON instead of spending it on internal reasoning.
+    messages = (
+        [{"role": "user", "content": f"INSTRUCTIONS\n{system}\n\nTASK\n{prompt}"}]
+        if is_gpt_oss else
+        [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+    )
+    completion_limit = max(256, min(int(cfg.max_tokens), 12000))
+    payload: dict[str, Any] = {
         "model": cfg.model,
-        "max_tokens": max(256, min(int(cfg.max_tokens), 12000)),
         "temperature": 0.15,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
     }
+    if is_gpt_oss:
+        payload["max_completion_tokens"] = completion_limit
+        effort = str(getattr(cfg, "reasoning_effort", "low") or "low").strip().lower()
+        payload["reasoning_effort"] = effort if effort in {"low", "medium", "high"} else "low"
+        payload["include_reasoning"] = False
+    else:
+        payload["max_tokens"] = completion_limit
+
     if response_schema is not None:
+        schema = _strict_schema_for_groq(response_schema) if is_groq and strict_json_schema else dict(response_schema)
         payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
                 "name": "makryvelios_structured_response",
                 "strict": bool(strict_json_schema),
-                "schema": dict(response_schema),
+                "schema": schema,
             },
         }
+
     response = requests.post(
         endpoint,
         headers={"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"},
@@ -195,17 +243,32 @@ def _openai_compatible_reply(prompt: str, cfg: LLMConfig, *, system: str, timeou
     )
     if not response.ok:
         raise RuntimeError(f"OpenAI-compatible API returned HTTP {response.status_code}: {response.text[:1200]}")
-    payload = response.json()
-    choices = payload.get("choices", [])
+    body = response.json()
+    choices = body.get("choices", [])
     if not choices:
         raise RuntimeError("OpenAI-compatible API returned no choices.")
-    message = choices[0].get("message", {})
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    message = choice.get("message", {}) or {}
     content = message.get("content", "")
     if isinstance(content, list):
-        content = "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
-    text = str(content).strip()
+        content = "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("text"))
+    text = str(content or "").strip()
     if not text:
-        raise RuntimeError("OpenAI-compatible API returned no text content.")
+        finish = str(choice.get("finish_reason", "unknown"))
+        usage = body.get("usage", {}) or {}
+        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", "unknown"))
+        reasoning_present = bool(message.get("reasoning"))
+        model_note = (
+            f" Groq GPT-OSS reasoning_effort={payload.get('reasoning_effort')} and "
+            f"max_completion_tokens={payload.get('max_completion_tokens')}."
+            if is_gpt_oss else ""
+        )
+        raise RuntimeError(
+            "OpenAI-compatible API returned HTTP 200 but no final text content "
+            f"(finish_reason={finish}; completion_tokens={completion_tokens}; reasoning_present={reasoning_present})."
+            + model_note
+            + " This is a generation-budget/response-state issue, not an authentication failure."
+        )
     return text
 
 
