@@ -11,6 +11,7 @@ from agentic_research import (
     agentic_submission_package,
     build_agentic_plan,
     extract_source_evidence,
+    estimate_rq_prompt_tokens,
     generate_questions_with_ai,
     generate_research_questions,
     RQ_RESPONSE_SCHEMA,
@@ -172,7 +173,43 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
 
     st.markdown("### Specific research-question generator")
     rq_count = st.slider("Questions to generate in one batch", 10, 200, 150, 10, key="agentic_rq_count")
-    st.caption("Smart offline mode ranks actual observed relationships before composing questions. Local/API AI modes additionally read the schema, observed correlation leads and uploaded PDF evidence to create less templated questions.")
+    st.caption("Smart offline mode ranks actual observed relationships before composing questions. Local/API AI modes additionally read a bounded, relevant subset of the schema, observed correlation leads and uploaded PDF evidence.")
+
+    focus_columns = list(dict.fromkeys([c for c in [outcome, *(predictors or []), group, time_col, region] if c is not None and c in df.columns])) if not df.empty else []
+    cx1, cx2 = st.columns([2, 1])
+    with cx1:
+        context_profile = st.selectbox(
+            "AI evidence context",
+            ["Compact — free-tier friendly", "Standard", "Extended"],
+            index=0,
+            key="agentic_context_profile",
+            help="This only controls how much schema/PDF evidence is sent to the selected AI. It never changes the deterministic analysis and never switches provider or model.",
+        )
+    with cx2:
+        rq_batch_size = st.number_input(
+            "AI questions per request", min_value=5, max_value=25, value=min(10, int(rq_count)), step=5, key="agentic_ai_rq_batch_size",
+            help="Large banks are generated in several visible requests. Smaller batches are safer on free-provider token-per-minute limits.",
+        )
+    profile_name = str(context_profile).split(" — ")[0]
+    try:
+        estimated_input = estimate_rq_prompt_tokens(
+            df, pdf_pages, goal, min(int(rq_batch_size), int(rq_count)), focus_columns=focus_columns, context_profile=profile_name
+        ) if not df.empty else 0
+    except Exception:
+        estimated_input = 0
+    config_now = st.session_state.get("llm_config", {})
+    max_output_now = int(config_now.get("max_tokens", 0) or 0) if isinstance(config_now, dict) else 0
+    provider_now = str(config_now.get("provider", "")) if isinstance(config_now, dict) else ""
+    if estimated_input:
+        estimated_total = estimated_input + max_output_now
+        st.caption(f"Estimated first AI request: ~{estimated_input:,} input tokens + up to {max_output_now:,} output tokens = ~{estimated_total:,} total. Estimate is conservative and provider accounting may differ.")
+        if provider_now.lower().startswith("groq") and estimated_total >= 7600:
+            st.warning("This configuration is close to/exceeds the 8,000 TPM ceiling reported by your current Groq free-tier model. Reduce the context profile, questions per request or output-token setting before Generate.")
+        elif provider_now.lower().startswith("groq"):
+            st.success("Current estimated first request is below the 8,000 TPM ceiling reported by your Groq free-tier model. No provider/model fallback will occur.")
+    if focus_columns:
+        st.caption("AI focus variables: " + ", ".join(map(str, focus_columns[:20])))
+
     if st.button("GENERATE SPECIFIC RESEARCH QUESTIONS", key="agentic_generate_rqs"):
         try:
             with st.spinner(f"Generating up to {int(rq_count)} grounded research questions..."):
@@ -180,7 +217,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                     if not ollama_model.strip():
                         raise ValueError("Enter or select a local Ollama model first.")
                     reply_fn = lambda prompt: ollama_text_reply(prompt, ollama_model, endpoint=ollama_endpoint, timeout=240, temperature=0.18)
-                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=25)
+                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=int(rq_batch_size), focus_columns=focus_columns, context_profile=profile_name)
                     source = f"Local Ollama · {ollama_model}"
                 elif engine.startswith("Configured AI"):
                     config = st.session_state.get("llm_config", {})
@@ -190,7 +227,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                     provider_name = str(config.get("provider", ""))
                     schema = RQ_RESPONSE_SCHEMA if provider_name.lower().startswith(("google", "gemini")) else None
                     reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=150, response_schema=schema)
-                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=20)
+                    rqs = generate_questions_with_ai(df, pdf_pages, goal, int(rq_count), reply_fn, batch_size=int(rq_batch_size), focus_columns=focus_columns, context_profile=profile_name)
                     source = f"Configured AI · {config.get('provider')} · {config.get('model')}"
                 else:
                     rqs = generate_research_questions(df, pdf_pages, limit=int(rq_count))
@@ -251,7 +288,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                                 system = "You are an evidence-grounded research synthesis engine. Preserve every computed number exactly, name the actual variables/models/sources, and never replace missing evidence with generic boilerplate."
                                 reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240, response_schema=SYNTHESIS_RESPONSE_SCHEMA)
                                 provider_label = f"{config.get('provider')} · {config.get('model')}"
-                            run = refine_run_with_ai(run, reply_fn, provider_label=provider_label)
+                            run = refine_run_with_ai(run, reply_fn, provider_label=provider_label, context_profile=profile_name)
                     except Exception as synth_exc:
                         st.warning(f"Deterministic analysis completed, but the optional AI synthesis pass failed: {synth_exc}. The offline results were retained unchanged.")
                 st.session_state["agentic_run_result"] = run
@@ -302,7 +339,7 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
                         system = "You are an evidence-grounded research synthesis engine. Preserve every computed number exactly, name the actual variables/models/sources, and never replace missing evidence with generic boilerplate."
                         reply_fn = lambda prompt: llm_reply(prompt, config, system=system, timeout=240, response_schema=SYNTHESIS_RESPONSE_SCHEMA)
                         provider_label = f"{config.get('provider')} · {config.get('model')}"
-                    run = refine_run_with_ai(run, reply_fn, provider_label=provider_label)
+                    run = refine_run_with_ai(run, reply_fn, provider_label=provider_label, context_profile=profile_name)
                     st.session_state["agentic_run_result"] = run
                 st.success("AI synthesis completed. Abstract, Results, Discussion, Conclusion, limitations and the submission package now use the evidence-grounded rewrite.")
                 st.rerun()

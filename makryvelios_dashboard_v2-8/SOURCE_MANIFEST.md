@@ -1,4 +1,12 @@
-# SOURCE MANIFEST — v5.8.4
+
+## v5.8.5 additive files/changes
+
+- `agentic_research.py`: compact bounded RQ prompt builder, relevant-PDF retrieval, token estimator, context-profile-aware synthesis.
+- `agentic_ui.py`: Compact/Standard/Extended context selector, visible questions-per-request control, focus-variable display and token-budget warning.
+- `documentation/AI_RESEARCH_ENGINE_v5_8_5.md`, `DEPLOY_v5_8_5.md`, `VALIDATION_v5_8_5.md`.
+- `tests/test_agentic_v585.py`: 83-variable prompt-size, focus-routing and synthesis-preservation regression coverage.
+
+# SOURCE MANIFEST — v5.8.5
 
 Generated for preservation/reproducibility. No files from the v5.8.3 base are intentionally removed.
 

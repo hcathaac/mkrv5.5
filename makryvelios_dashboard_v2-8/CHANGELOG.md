@@ -1,3 +1,15 @@
+# v5.8.5 — 2026-09-06 — Compact visible AI context controls
+
+- Additive hotfix only; no feature/module/export removal.
+- Fixed Groq/free-tier RQ failures caused by oversized input context: the Agentic RQ prompt no longer serialises the full 83+ variable schema and dozens of PDF passages.
+- Added bounded context profiles: **Compact — free-tier friendly**, **Standard**, and **Extended**.
+- Added explicit user-focus routing from mapped outcome/predictors/group/time/geography fields into AI research-question generation.
+- Added relevance-ranked PDF evidence retrieval and bounded observed-correlation leads for RQ generation.
+- Added a visible **AI questions per request** control; large RQ banks are split into smaller requests without silently changing provider or model.
+- Added a conservative visible input-token estimate and Groq 8,000-TPM warning/safe indicator before Generate.
+- Applied the same manually selected context profile to full-draft AI synthesis so free-tier calls can be intentionally bounded.
+- No automatic provider/model fallback was added. Deterministic calculations and all previous modules remain unchanged.
+
 # v5.8.4 — Agentic structured-synthesis reliability
 
 - Additive hotfix only; no feature removals.

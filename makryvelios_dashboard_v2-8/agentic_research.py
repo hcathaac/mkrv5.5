@@ -831,6 +831,7 @@ def refine_run_with_ai(
     reply_fn: Callable[[str], str],
     *,
     provider_label: str = "AI",
+    context_profile: str = "Compact",
 ) -> AgenticRun:
     """Rewrite the draft sections from the *actual computed run* and PDF evidence.
 
@@ -841,7 +842,7 @@ def refine_run_with_ai(
     context = agent_context_text(
         run,
         "strongest and weakest findings exact model results literature evidence discussion conclusion limitations",
-        max_chars=70000,
+        max_chars=_context_profile_limits(context_profile)["synthesis_chars"],
     )
     prompt = f"""You are refining a research draft from a completed deterministic analytical run.
 
@@ -1024,37 +1025,121 @@ RQ_RESPONSE_SCHEMA: dict[str, Any] = {
     },
 }
 
-def ai_research_question_prompt(df: pd.DataFrame, pdf_pages: pd.DataFrame | None, goal: str, count: int, existing: Sequence[str] = ()) -> str:
-    numeric = list(df.select_dtypes(include=np.number).columns)
-    schema = []
-    for c in df.columns[:180]:
-        schema.append({"name": str(c), "dtype": str(df[c].dtype), "non_missing": int(df[c].notna().sum()), "unique": int(df[c].nunique(dropna=True))})
-    corr_summary = []
+def _context_profile_limits(profile: str) -> dict[str, int]:
+    """Transparent context limits for hosted/local AI calls.
+
+    These limits only change how much evidence is *sent* to the selected model;
+    they never change the deterministic analyses or silently switch provider/model.
+    """
+    key = str(profile or "Compact").strip().lower()
+    if key.startswith("extended"):
+        return {"schema": 60, "corr": 30, "literature": 18, "snippet_chars": 800, "existing": 35, "goal_chars": 2200, "synthesis_chars": 42000}
+    if key.startswith("standard"):
+        return {"schema": 32, "corr": 18, "literature": 10, "snippet_chars": 600, "existing": 22, "goal_chars": 1600, "synthesis_chars": 24000}
+    return {"schema": 18, "corr": 10, "literature": 5, "snippet_chars": 420, "existing": 12, "goal_chars": 1200, "synthesis_chars": 14000}
+
+
+def _rank_relevant_literature(pdf_pages: pd.DataFrame | None, query: str, limit: int, snippet_chars: int) -> list[dict[str, Any]]:
+    if pdf_pages is None or pdf_pages.empty or limit <= 0:
+        return []
+    ev = extract_source_evidence(pdf_pages)
+    if ev.empty:
+        return []
+    corpus = (ev["document"].astype(str) + " p." + ev["page"].astype(str) + " " + ev["snippet"].fillna("").astype(str)).tolist()
+    try:
+        vec = TfidfVectorizer(ngram_range=(1, 2), strip_accents="unicode", stop_words="english")
+        mat = vec.fit_transform(corpus + [str(query)])
+        scores = cosine_similarity(mat[-1], mat[:-1]).ravel()
+        order = np.argsort(scores)[::-1][: int(limit)]
+    except Exception:
+        order = np.arange(min(int(limit), len(ev)))
+    out = []
+    for idx in order:
+        row = ev.iloc[int(idx)]
+        snippet = re.sub(r"\s+", " ", str(row.get("snippet", "") or "")).strip()[: int(snippet_chars)]
+        if snippet:
+            out.append({"document": str(row.get("document", "")), "page": int(row.get("page", 0) or 0), "snippet": snippet})
+    return out
+
+
+def ai_research_question_prompt(
+    df: pd.DataFrame,
+    pdf_pages: pd.DataFrame | None,
+    goal: str,
+    count: int,
+    existing: Sequence[str] = (),
+    *,
+    focus_columns: Sequence[str] = (),
+    context_profile: str = "Compact",
+) -> str:
+    """Build a compact, evidence-grounded RQ prompt.
+
+    Earlier versions serialised almost the whole 83+ variable schema and dozens
+    of PDF passages.  That could exceed free-provider TPM limits before output
+    generation began.  v5.8.5 keeps the selected research roles first and adds
+    only a bounded amount of genuinely relevant context.
+    """
+    limits = _context_profile_limits(context_profile)
+    numeric_all = list(df.select_dtypes(include=np.number).columns)
+    focus = [str(c) for c in focus_columns if c is not None and str(c) in df.columns]
+    focus = list(dict.fromkeys(focus))
+
+    # Add a small number of semantically useful fields, never the full schema.
+    semantic = [c for c in df.columns if any(tok in str(c).lower() for tok in ("year", "date", "time", "region", "nuts", "municip", "budget", "cost", "fund", "score", "criterion", "sector", "intervention"))]
+    candidates = list(dict.fromkeys([*focus, *semantic, *numeric_all]))[: limits["schema"]]
+    schema = [
+        {"name": str(c), "dtype": str(df[c].dtype), "non_missing": int(df[c].notna().sum()), "unique": int(df[c].nunique(dropna=True))}
+        for c in candidates
+    ]
+
+    numeric = [c for c in candidates if c in numeric_all]
+    corr_summary: list[tuple[float, str, str, float]] = []
     if len(numeric) >= 2:
         try:
-            corr = df[numeric[:60]].corr(numeric_only=True)
+            corr = df[numeric].corr(numeric_only=True)
             for i, a in enumerate(corr.columns):
                 for b in corr.columns[i + 1:]:
                     r = corr.loc[a, b]
                     if pd.notna(r):
-                        corr_summary.append((abs(float(r)), a, b, float(r)))
-            corr_summary = sorted(corr_summary, reverse=True)[:30]
+                        corr_summary.append((abs(float(r)), str(a), str(b), float(r)))
+            corr_summary = sorted(corr_summary, reverse=True)[: limits["corr"]]
         except Exception:
             corr_summary = []
-    literature = []
-    if pdf_pages is not None and not pdf_pages.empty:
-        ev = extract_source_evidence(pdf_pages)
-        literature = ev[["document", "page", "snippet"]].head(35).to_dict("records") if not ev.empty else []
-    return f"""Generate {int(count)} DISTINCT, specific, researchable questions for the following project. They must be grounded in the actual variable schema, observed high-level relationships, and uploaded literature evidence below. Avoid generic template questions. Use the real variable names where useful. Mix descriptive, econometric, causal-design, Bayesian, predictive/XAI, spatial/time, MCDA/optimisation and robustness questions only when the data can support them. Do not invent variables or literature claims.
 
-GOAL: {goal}
-SCHEMA: {json.dumps(schema, ensure_ascii=False)[:18000]}
-STRONG CORRELATION LEADS (not causal): {json.dumps(corr_summary, ensure_ascii=False)[:8000]}
-LITERATURE PAGE EVIDENCE: {json.dumps(literature, ensure_ascii=False)[:18000]}
-QUESTIONS ALREADY GENERATED (do not repeat): {json.dumps(list(existing)[-80:], ensure_ascii=False)[:12000]}
+    query = " ".join([str(goal)[: limits["goal_chars"]], *focus])
+    literature = _rank_relevant_literature(pdf_pages, query, limits["literature"], limits["snippet_chars"])
+    previous = [str(q)[:220] for q in list(existing)[-limits["existing"]:]]
+    goal_text = re.sub(r"\s+", " ", str(goal)).strip()[: limits["goal_chars"]]
+
+    return f"""Generate {int(count)} DISTINCT, specific, researchable questions for this project.
+Ground every question in the compact evidence below. Use actual variable names where useful. Do not invent variables or source claims. Use descriptive, econometric, causal-design, Bayesian, predictive/XAI, spatial/time, MCDA/optimisation or robustness methods only when the supplied fields/evidence can support them.
+
+GOAL: {goal_text}
+FOCUS VARIABLES SELECTED BY USER: {json.dumps(focus, ensure_ascii=False)}
+COMPACT SCHEMA: {json.dumps(schema, ensure_ascii=False)}
+TOP OBSERVED CORRELATION LEADS (association only): {json.dumps(corr_summary, ensure_ascii=False)}
+MOST RELEVANT PDF PASSAGES: {json.dumps(literature, ensure_ascii=False)}
+RECENT QUESTIONS TO AVOID DUPLICATING: {json.dumps(previous, ensure_ascii=False)}
 
 Return ONLY a JSON array. Each object must contain: research_question, method_family, variables, priority (1-3), rationale, source_basis."""
 
+
+def estimate_rq_prompt_tokens(
+    df: pd.DataFrame,
+    pdf_pages: pd.DataFrame | None,
+    goal: str,
+    count: int,
+    *,
+    focus_columns: Sequence[str] = (),
+    context_profile: str = "Compact",
+) -> int:
+    """Conservative visible estimate; no tokenizer dependency required."""
+    prompt = ai_research_question_prompt(
+        df, pdf_pages, goal, count, (), focus_columns=focus_columns, context_profile=context_profile
+    )
+    # English/JSON research prompts usually average below 4 chars/token; use 3.5
+    # so the UI estimate is deliberately conservative.
+    return int(math.ceil(len(prompt) / 3.5))
 
 def generate_questions_with_ai(
     df: pd.DataFrame,
@@ -1063,6 +1148,9 @@ def generate_questions_with_ai(
     total: int,
     reply_fn: Callable[[str], str],
     batch_size: int = 25,
+    *,
+    focus_columns: Sequence[str] = (),
+    context_profile: str = "Compact",
 ) -> pd.DataFrame:
     """Generate an AI-grounded RQ bank with resilient parsing and recovery.
 
@@ -1081,7 +1169,7 @@ def generate_questions_with_ai(
     while len(rows) < total and attempts < max_attempts:
         attempts += 1
         need = min(int(batch_size), total - len(rows))
-        prompt = ai_research_question_prompt(df, pdf_pages, goal, need, [r["research_question"] for r in rows])
+        prompt = ai_research_question_prompt(df, pdf_pages, goal, need, [r["research_question"] for r in rows], focus_columns=focus_columns, context_profile=context_profile)
         response_text = reply_fn(prompt)
         parsed = _parse_rq_json(response_text)
 
@@ -1090,7 +1178,7 @@ def generate_questions_with_ai(
             # One compact repair pass. Smaller batches reduce truncation risk and
             # make even non-schema providers much more reliable.
             repair_need = min(10, need)
-            repair_prompt = ai_research_question_prompt(df, pdf_pages, goal, repair_need, [r["research_question"] for r in rows]) + (
+            repair_prompt = ai_research_question_prompt(df, pdf_pages, goal, repair_need, [r["research_question"] for r in rows], focus_columns=focus_columns, context_profile=context_profile) + (
                 "\n\nFORMAT RECOVERY: Your previous response could not be parsed. Return a raw JSON array only. "
                 "Do not use Markdown fences, headings, commentary or trailing text."
             )

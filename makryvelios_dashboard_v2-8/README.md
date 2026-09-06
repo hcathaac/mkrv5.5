@@ -1,4 +1,12 @@
-# Makryvelios Research Analytics & Econometrics Command Centre v5.8.4
+
+
+Version 5.8.5 is a strictly additive context-budget reliability hotfix over v5.8.4. Agentic AI requests now use bounded user-visible Compact/Standard/Extended evidence profiles, prioritise mapped research-role variables and relevance-ranked PDF passages, expose per-request RQ batching and show a conservative token estimate before execution. Provider/model selection remains manual and visible; no hidden provider/model fallback is introduced. All v5.8.4 structured-synthesis behaviour and every earlier analytical capability are retained.
+
+## v5.8.5 Agentic AI context controls
+
+Agentic Research Mode now uses bounded, visible AI evidence contexts rather than serialising the entire active schema/PDF corpus into each hosted-model request. Choose **Compact**, **Standard**, or **Extended**, set the visible number of AI questions per request, and review the conservative estimated input/output-token total before execution. The selected provider/model remains fully manual; no hidden fallback is performed. Compact mode prioritises the mapped outcome/predictors/group/time/geography fields, strongest relevant observed relationships and a small set of relevance-ranked PDF passages.
+
+# Makryvelios Research Analytics & Econometrics Command Centre v5.8.5
 
 Version 5.8.4 is a strictly additive manual-control synthesis reliability hotfix over v5.8.3. Groq GPT-OSS synthesis now uses Groq Structured Outputs with a strict JSON schema when the caller requests a schema, and Agentic full-draft synthesis requests that schema explicitly. The parser also accepts a complete sectioned prose response from the same selected model. It does **not** automatically change provider/model or hide provider failures; the selected engine remains visible and manual. No existing analytical, GAMS/ITA, mapping, Frontier, Research Chair, Agentic, submission or export capability is removed.
 
