@@ -15,11 +15,11 @@ import pandas as pd
 from confirmatory_analytics import (
     alexander_govern_test, beta_regression, brant_type_wald,
     compositional_transforms, conditional_logistic, cox_proportional_hazards,
-    dirichlet_regression, dunn_posthoc, equivalence_tost, exact_2x2_tests,
-    firth_logistic, gee_regression, heckman_two_step, latent_class_analysis,
+    dirichlet_regression, dirichlet_component_alpha_regression, dunn_posthoc, equivalence_tost, exact_2x2_tests,
+    firth_logistic, gee_regression, heckman_two_step, latent_class_analysis, latent_class_model_selection,
     linear_mixed_effects, mantel_haenszel, mca_ward, meta_analysis,
     multinomial_logit, ordered_regression, page_trend, permanova,
-    plackett_luce, plackett_luce_mixture, rasch_1pl,
+    plackett_luce, plackett_luce_mixture, plackett_luce_model_selection, rasch_1pl,
     regression_discontinuity, repeated_rank_tests, synthetic_control,
     tobit_regression, zero_inflated_count, brunner_munzel_test,
     jonckheere_terpstra, quade_test, cochran_q_test, mcnemar_test,
@@ -27,7 +27,7 @@ from confirmatory_analytics import (
     partial_correlation, meta_regression, parsed_numeric_audit,
 )
 
-ENGINE_VERSION = "5.9.0"
+ENGINE_VERSION = "5.9.1"
 
 RUNNERS = {
     "firth_logistic": firth_logistic,
@@ -43,11 +43,14 @@ RUNNERS = {
     "compositional_transforms": compositional_transforms,
     "permanova": permanova,
     "dirichlet_regression": dirichlet_regression,
+    "dirichlet_component_alpha_regression": dirichlet_component_alpha_regression,
     "repeated_rank_tests": repeated_rank_tests,
     "plackett_luce": plackett_luce,
     "plackett_luce_mixture": plackett_luce_mixture,
+    "plackett_luce_model_selection": plackett_luce_model_selection,
     "mca_ward": mca_ward,
     "latent_class_analysis": latent_class_analysis,
+    "latent_class_model_selection": latent_class_model_selection,
     "dunn_posthoc": dunn_posthoc,
     "equivalence_tost": equivalence_tost,
     "meta_analysis": meta_analysis,
@@ -86,12 +89,15 @@ TEMPLATES: dict[str, dict[str, Any]] = {
     "cox_proportional_hazards": {"time": "follow_up", "event": "event_01", "x_vars": ["x1"], "categorical": [], "strata": None},
     "compositional_transforms": {"columns": ["part1", "part2", "part3"], "zero_replacement": 1e-6},
     "permanova": {"columns": ["part1", "part2", "part3"], "group": "group", "transform": "ILR (Aitchison)", "permutations": 999, "seed": 42, "zero_replacement": 1e-6},
-    "dirichlet_regression": {"components": ["part1", "part2", "part3"], "x_vars": ["x1"], "categorical": [], "zero_replacement": 1e-6},
+    "dirichlet_regression": {"components": ["part1", "part2", "part3"], "x_vars": ["x1"], "categorical": [], "reference_levels": {}, "zero_replacement": 1e-6},
+    "dirichlet_component_alpha_regression": {"components": ["part1", "part2", "part3"], "x_vars": ["x1"], "categorical": [], "reference_levels": {}, "standardize_numeric": [], "zero_replacement": 1e-6, "likelihood_ratio_blocks": True},
     "repeated_rank_tests": {"columns": ["item1", "item2", "item3"], "higher_is_better": True, "adjustment": "holm"},
     "plackett_luce": {"rank_columns": ["rank_item1", "rank_item2", "rank_item3"]},
     "plackett_luce_mixture": {"rank_columns": ["rank_item1", "rank_item2", "rank_item3"], "components": 2, "seed": 42},
-    "mca_ward": {"categorical_columns": ["cat1", "cat2", "cat3"], "dimensions": 5, "clusters": 3},
+    "plackett_luce_model_selection": {"rank_columns": ["rank_item1", "rank_item2", "rank_item3"], "max_components": 5, "seed": 42, "n_init": 5, "criterion": "aic"},
+    "mca_ward": {"categorical_columns": ["cat1", "cat2", "cat3"], "dimensions": 5, "clusters": 3, "ward_dimensions": 2, "benzecri": True},
     "latent_class_analysis": {"categorical_columns": ["cat1", "cat2", "cat3"], "classes": 3, "seed": 42, "n_init": 5},
+    "latent_class_model_selection": {"categorical_columns": ["cat1", "cat2", "cat3"], "min_classes": 2, "max_classes": 5, "seed": 42, "n_init": 10, "criterion": "bic"},
     "dunn_posthoc": {"value": "outcome", "group": "group", "adjustment": "holm"},
     "equivalence_tost": {"value_a": "a", "value_b": "b", "group": None, "low": -0.2, "high": 0.2, "paired": True},
     "meta_analysis": {"effect": "effect", "standard_error": "se", "study_label": "study"},

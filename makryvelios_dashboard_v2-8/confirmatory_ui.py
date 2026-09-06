@@ -19,12 +19,14 @@ from confirmatory_analytics import (
     cox_proportional_hazards,
     exact_2x2_tests,
     dirichlet_regression,
+    dirichlet_component_alpha_regression,
     dunn_posthoc,
     equivalence_tost,
     firth_logistic,
     gee_regression,
     heckman_two_step,
     latent_class_analysis,
+    latent_class_model_selection,
     linear_mixed_effects,
     mantel_haenszel,
     mca_ward,
@@ -36,6 +38,7 @@ from confirmatory_analytics import (
     permanova,
     plackett_luce,
     plackett_luce_mixture,
+    plackett_luce_model_selection,
     rasch_1pl,
     regression_discontinuity,
     synthetic_control,
@@ -86,6 +89,20 @@ def _render_result(result: AnalysisResult | None, key: str) -> None:
 
 def _numeric(df: pd.DataFrame) -> list[str]:
     return list(df.select_dtypes(include=np.number).columns)
+
+
+def _reference_level_controls(df: pd.DataFrame, categorical: list[str], key_prefix: str) -> dict[str, object]:
+    """Collect deterministic reference categories without paper-specific rules."""
+    refs: dict[str, object] = {}
+    if not categorical:
+        return refs
+    with st.expander("Reference categories for categorical predictors", expanded=False):
+        st.caption("Choose the baseline category explicitly when exact manuscript/package replication matters. If left at the default, the first displayed level is used.")
+        for col in categorical:
+            levels = sorted(pd.Series(df[col].dropna()).drop_duplicates().tolist(), key=lambda v: str(v))
+            if levels:
+                refs[col] = st.selectbox(f"Reference: {col}", levels, key=f"{key_prefix}_ref_{col}")
+    return refs
 
 
 def render_confirmatory_lab(df: pd.DataFrame) -> None:
@@ -221,7 +238,16 @@ def render_confirmatory_lab(df: pd.DataFrame) -> None:
             _render_result(st.session_state.get("cox_result"), "cox_ph")
 
     with tabs[4]:
-        method = st.selectbox("Compositional method", ["CLR / ILR transform", "PERMANOVA", "Dirichlet regression"], key="conf_comp_method")
+        method = st.selectbox(
+            "Compositional method",
+            [
+                "CLR / ILR transform",
+                "PERMANOVA",
+                "Dirichlet: component-wise log-alpha",
+                "Dirichlet: mean / common precision",
+            ],
+            key="conf_comp_method",
+        )
         comps = st.multiselect("Composition component columns", numeric, key="comp_cols", help="Select parts that jointly represent an allocation/composition, e.g. weights summing to 100.")
         zero = st.number_input("Zero replacement before log-ratios", min_value=1e-12, max_value=0.1, value=1e-6, format="%.8f", key="comp_zero")
         if method == "CLR / ILR transform":
@@ -231,7 +257,7 @@ def render_confirmatory_lab(df: pd.DataFrame) -> None:
         elif method == "PERMANOVA":
             group = st.selectbox("Grouping variable", all_cols, key="perm_group")
             transform = st.selectbox("Geometry", ["ILR (Aitchison)", "CLR", "Raw Euclidean"], key="perm_transform")
-            perms = st.number_input("Permutations", min_value=99, max_value=100000, value=999, step=100, key="perm_n")
+            perms = st.number_input("Permutations", min_value=99, max_value=100000, value=9999, step=100, key="perm_n")
             seed = st.number_input("Seed", min_value=0, max_value=2_147_483_647, value=42, key="perm_seed")
             if st.button("RUN PERMANOVA", type="primary", key="run_permanova"):
                 _run_and_store("permanova_result", permanova, df=df, columns=comps, group=group, transform=transform, permutations=int(perms), seed=int(seed), zero_replacement=float(zero))
@@ -239,12 +265,35 @@ def render_confirmatory_lab(df: pd.DataFrame) -> None:
         else:
             xs = st.multiselect("Predictors", all_cols, key="dir_x")
             cats = st.multiselect("Categorical predictors", [c for c in xs], key="dir_cat")
-            if st.button("RUN DIRICHLET REGRESSION", type="primary", key="run_dirichlet"):
-                _run_and_store("dir_result", dirichlet_regression, df=df, components=comps, x_vars=xs, categorical=cats, zero_replacement=float(zero))
-            _render_result(st.session_state.get("dir_result"), "dirichlet_regression")
+            refs = _reference_level_controls(df, cats, "dir")
+            if method == "Dirichlet: component-wise log-alpha":
+                numeric_xs = [c for c in xs if c not in cats and c in numeric]
+                zvars = st.multiselect("Z-standardise numeric predictors (optional; population SD)", numeric_xs, key="dir_alpha_zvars")
+                st.caption("Each predictor can affect every Dirichlet alpha component. Likelihood-ratio block tests use K × predictor-dummy degrees of freedom and are appropriate when that parameterisation is required by a manuscript or reference implementation.")
+                if st.button("RUN COMPONENT-WISE DIRICHLET", type="primary", key="run_dirichlet_alpha"):
+                    _run_and_store(
+                        "dir_alpha_result", dirichlet_component_alpha_regression,
+                        df=df, components=comps, x_vars=xs, categorical=cats,
+                        reference_levels=refs, standardize_numeric=zvars, zero_replacement=float(zero),
+                        likelihood_ratio_blocks=True,
+                    )
+                _render_result(st.session_state.get("dir_alpha_result"), "dirichlet_component_alpha")
+            else:
+                st.caption("Alternative parameterisation: multinomial-logit mean with a common precision parameter. Retained because it answers a different modelling question and should not be silently substituted for component-wise log-alpha Dirichlet regression.")
+                if st.button("RUN MEAN/PRECISION DIRICHLET", type="primary", key="run_dirichlet_mean"):
+                    _run_and_store(
+                        "dir_result", dirichlet_regression,
+                        df=df, components=comps, x_vars=xs, categorical=cats,
+                        reference_levels=refs, zero_replacement=float(zero),
+                    )
+                _render_result(st.session_state.get("dir_result"), "dirichlet_mean_precision")
 
     with tabs[5]:
-        method = st.selectbox("Ranking method", ["Friedman + Wilcoxon/Holm", "Plackett-Luce", "Plackett-Luce mixture"], key="conf_rank_method")
+        method = st.selectbox(
+            "Ranking method",
+            ["Friedman + Wilcoxon/Holm", "Plackett-Luce", "Plackett-Luce mixture", "Plackett-Luce model selection"],
+            key="conf_rank_method",
+        )
         cols = st.multiselect("Repeated score / rank columns", numeric, key="rank_cols")
         if method.startswith("Friedman"):
             higher = st.checkbox("Higher value means higher preference", value=True, key="rank_high")
@@ -257,22 +306,48 @@ def render_confirmatory_lab(df: pd.DataFrame) -> None:
             if st.button("RUN PLACKETT-LUCE", type="primary", key="run_pl"):
                 _run_and_store("pl_result", plackett_luce, df=df, rank_columns=cols)
             _render_result(st.session_state.get("pl_result"), "plackett_luce")
-        else:
+        elif method == "Plackett-Luce mixture":
             K = st.slider("Latent ranking classes", 2, 5, 2, key="plmix_k")
             seed = st.number_input("Seed", min_value=0, max_value=2_147_483_647, value=42, key="plmix_seed")
             if st.button("RUN PLACKETT-LUCE MIXTURE", type="primary", key="run_plmix"):
                 _run_and_store("plmix_result", plackett_luce_mixture, df=df, rank_columns=cols, components=int(K), seed=int(seed))
             _render_result(st.session_state.get("plmix_result"), "plackett_luce_mixture")
+        else:
+            max_k = st.slider("Maximum mixture classes", 2, 5, 5, key="plsel_maxk")
+            criterion = st.selectbox("Selection criterion", ["aic", "bic"], index=0, key="plsel_criterion")
+            starts = st.slider("Random starts per mixture size", 1, 10, 5, key="plsel_starts")
+            seed = st.number_input("Base seed", min_value=0, max_value=2_147_483_647, value=42, key="plsel_seed")
+            if st.button("RUN PLACKETT-LUCE MODEL SELECTION", type="primary", key="run_plsel"):
+                _run_and_store("plsel_result", plackett_luce_model_selection, df=df, rank_columns=cols, max_components=int(max_k), seed=int(seed), n_init=int(starts), criterion=criterion)
+            _render_result(st.session_state.get("plsel_result"), "plackett_luce_model_selection")
 
     with tabs[6]:
-        method = st.selectbox("Categorical latent method", ["MCA + Ward", "Latent class analysis"], key="conf_lat_method")
+        method = st.selectbox(
+            "Categorical latent method",
+            ["MCA + Ward", "LCA model selection", "Latent class analysis (fixed K)"],
+            key="conf_lat_method",
+        )
         cats = st.multiselect("Categorical variables", all_cols, key="lat_cols")
         if method == "MCA + Ward":
-            dims = st.slider("MCA dimensions retained", 2, 20, 5, key="mca_dims")
+            dims = st.slider("MCA dimensions exported", 2, 20, 5, key="mca_dims")
+            ward_dims = st.slider("MCA dimensions used for Ward clustering", 1, max(1, int(dims)), min(2, int(dims)), key="mca_ward_dims")
             clusters = st.slider("Ward clusters", 2, 10, 3, key="mca_clusters")
+            benzecri = st.checkbox("Report Benzécri-corrected MCA inertia", value=True, key="mca_benzecri")
             if st.button("RUN MCA + WARD", type="primary", key="run_mca"):
-                _run_and_store("mca_result", mca_ward, df=df, categorical_columns=cats, dimensions=int(dims), clusters=int(clusters))
+                _run_and_store("mca_result", mca_ward, df=df, categorical_columns=cats, dimensions=int(dims), clusters=int(clusters), ward_dimensions=int(ward_dims), benzecri=benzecri)
             _render_result(st.session_state.get("mca_result"), "mca_ward")
+        elif method == "LCA model selection":
+            c1, c2 = st.columns(2)
+            with c1:
+                min_k = st.slider("Minimum classes", 2, 7, 2, key="lcasel_mink")
+            with c2:
+                max_k = st.slider("Maximum classes", max(2, int(min_k)), 8, max(5, int(min_k)), key="lcasel_maxk")
+            criterion = st.selectbox("Selection criterion", ["bic", "aic"], index=0, key="lcasel_criterion")
+            starts = st.slider("Random starts per K", 1, 20, 10, key="lcasel_starts")
+            seed = st.number_input("Seed", min_value=0, max_value=2_147_483_647, value=42, key="lcasel_seed")
+            if st.button("RUN LCA MODEL SELECTION", type="primary", key="run_lcasel"):
+                _run_and_store("lcasel_result", latent_class_model_selection, df=df, categorical_columns=cats, min_classes=int(min_k), max_classes=int(max_k), seed=int(seed), n_init=int(starts), criterion=criterion)
+            _render_result(st.session_state.get("lcasel_result"), "latent_class_model_selection")
         else:
             K = st.slider("Latent classes", 2, 8, 3, key="lca_k")
             starts = st.slider("Random starts", 1, 20, 5, key="lca_starts")

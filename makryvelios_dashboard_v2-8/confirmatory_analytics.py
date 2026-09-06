@@ -1,6 +1,6 @@
 """Generalised confirmatory, compositional, ranking and rare-method analytics.
 
-Makryvelios v5.9.0 additive module.
+Makryvelios v5.9.1 additive module.
 
 Design goals
 ------------
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from scipy import linalg, optimize, stats
 from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.special import gammaln, logsumexp
+from scipy.special import digamma, gammaln, logsumexp
 import statsmodels.api as sm
 from statsmodels.discrete.count_model import (
     ZeroInflatedNegativeBinomialP,
@@ -71,7 +71,15 @@ def _design_matrix(
     categorical: Sequence[str] = (),
     *,
     add_constant: bool = True,
+    reference_levels: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
+    """Build a numeric design matrix with optional explicit reference categories.
+
+    ``reference_levels`` is deliberately generic and only affects predictors
+    listed in ``categorical``.  When supplied, the requested level is placed
+    first before dummy encoding, making the reference category deterministic
+    across computers, pandas versions and future datasets.
+    """
     x_vars = list(dict.fromkeys(x_vars))
     if not x_vars:
         X = pd.DataFrame(index=df.index)
@@ -81,9 +89,24 @@ def _design_matrix(
             raise ValueError("Missing predictors: " + ", ".join(missing))
         X = df[x_vars].copy()
     categorical = [c for c in categorical if c in X.columns]
+    reference_levels = dict(reference_levels or {})
     for c in X.columns:
         if c not in categorical:
             X[c] = pd.to_numeric(X[c], errors="coerce")
+    for c in categorical:
+        observed = [v for v in pd.Series(X[c]).dropna().unique().tolist()]
+        if not observed:
+            continue
+        ref = reference_levels.get(c, None)
+        if ref is not None:
+            if ref not in observed:
+                # Allow a string-equivalent value from JSON/UI recipes.
+                matches = [v for v in observed if str(v) == str(ref)]
+                if not matches:
+                    raise ValueError(f"Reference level {ref!r} is not observed in categorical predictor {c!r}.")
+                ref = matches[0]
+            ordered = [ref] + sorted([v for v in observed if v != ref], key=lambda v: str(v))
+            X[c] = pd.Categorical(X[c], categories=ordered, ordered=False)
     if categorical:
         X = pd.get_dummies(X, columns=categorical, drop_first=True, dtype=float)
     X = X.loc[:, X.nunique(dropna=True) > 1]
@@ -740,12 +763,13 @@ def dirichlet_regression(
     *, components: Sequence[str],
     x_vars: Sequence[str],
     categorical: Sequence[str] = (),
+    reference_levels: Mapping[str, Any] | None = None,
     zero_replacement: float = 1e-6,
     max_iter: int = 2000,
 ) -> AnalysisResult:
     """Dirichlet regression with multinomial-logit mean and common precision."""
     Yraw = _as_numeric_frame(df, components)
-    X = _design_matrix(df, x_vars, categorical, add_constant=True)
+    X = _design_matrix(df, x_vars, categorical, add_constant=True, reference_levels=reference_levels)
     joined = pd.concat([Yraw.add_prefix("y::"), X.add_prefix("x::")], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
     y_cols = [c for c in joined if c.startswith("y::")]
     x_cols = [c for c in joined if c.startswith("x::")]
@@ -794,7 +818,193 @@ def dirichlet_regression(
     mean_pred = pd.DataFrame(mu, index=joined.index, columns=[f"predicted_mean::{c}" for c in components]).reset_index(names="row_index")
     fit = pd.DataFrame([{"n": n, "components": k, "predictors_including_intercept": p, "precision_phi": phi, "log_likelihood": -float(res.fun), "aic": 2*len(par)+2*float(res.fun), "bic": len(par)*np.log(n)+2*float(res.fun), "converged": bool(res.success), "optimizer_message": str(res.message)}])
     warns = [] if res.success else ["Dirichlet optimiser did not report successful convergence; inspect zeros, scaling and model complexity."]
-    return AnalysisResult({"Coefficients": pd.DataFrame(rows), "Fit": fit, "Predicted compositions": mean_pred}, pd.DataFrame(), {"method": "Dirichlet regression", "components": list(components), "predictors": list(x_vars), "zero_replacement": zero_replacement}, warns)
+    return AnalysisResult({"Coefficients": pd.DataFrame(rows), "Fit": fit, "Predicted compositions": mean_pred}, pd.DataFrame(), {"method": "Dirichlet regression (mean/precision)", "components": list(components), "predictors": list(x_vars), "categorical": list(categorical), "reference_levels": dict(reference_levels or {}), "zero_replacement": zero_replacement}, warns)
+
+
+def dirichlet_component_alpha_regression(
+    df: pd.DataFrame,
+    *,
+    components: Sequence[str],
+    x_vars: Sequence[str],
+    categorical: Sequence[str] = (),
+    reference_levels: Mapping[str, Any] | None = None,
+    standardize_numeric: Sequence[str] = (),
+    zero_replacement: float = 1e-6,
+    max_iter: int = 3000,
+    likelihood_ratio_blocks: bool = True,
+) -> AnalysisResult:
+    """Component-wise Dirichlet regression using log(alpha_j)=X beta_j.
+
+    Unlike the alternative mean/precision parameterisation, every predictor is
+    allowed to change every Dirichlet concentration parameter.  A categorical
+    predictor with ``g-1`` dummy columns therefore contributes ``K*(g-1)``
+    degrees of freedom to a likelihood-ratio block test for a K-part
+    composition.  This is the parameterisation used by several established
+    Dirichlet-regression workflows and is retained alongside, not instead of,
+    the mean/precision model.
+    """
+    components = list(dict.fromkeys(components))
+    x_vars = list(dict.fromkeys(x_vars))
+    categorical = [c for c in categorical if c in x_vars]
+    if len(components) < 2:
+        raise ValueError("Dirichlet regression requires at least two composition components.")
+    model_df = df.copy()
+    standardize_numeric = [c for c in standardize_numeric if c in x_vars and c not in categorical]
+    standardization_rows: list[dict[str, Any]] = []
+    for col in standardize_numeric:
+        values = pd.to_numeric(model_df[col], errors="coerce")
+        mean = float(values.mean())
+        sd = float(values.std(ddof=0))
+        if not np.isfinite(sd) or sd <= 0:
+            raise ValueError(f"Cannot z-standardise {col!r}: population SD is zero or non-finite.")
+        model_df[col] = (values - mean) / sd
+        standardization_rows.append({"predictor": col, "mean": mean, "population_sd_ddof0": sd})
+    Yraw = _as_numeric_frame(model_df, components)
+    X = _design_matrix(
+        model_df, x_vars, categorical, add_constant=True,
+        reference_levels=reference_levels,
+    )
+    joined = pd.concat([Yraw.add_prefix("y::"), X.add_prefix("x::")], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+    y_cols = [c for c in joined if c.startswith("y::")]
+    x_cols = [c for c in joined if c.startswith("x::")]
+    Y = _prepare_composition(joined[y_cols].to_numpy(float), zero_replacement)
+    Xv = joined[x_cols].to_numpy(float)
+    n, k = Y.shape
+    p = Xv.shape[1]
+    if n < max(20, p + k + 5):
+        raise ValueError("Too few complete rows for the selected component-wise Dirichlet specification.")
+    predictor_names = [c.replace("x::", "") for c in x_cols]
+    logY = np.log(np.clip(Y, 1e-300, None))
+
+    def unpack(par: np.ndarray, design: np.ndarray = Xv) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        B = np.asarray(par, dtype=float).reshape(design.shape[1], k)
+        eta = np.clip(design @ B, -20.0, 20.0)
+        alpha = np.exp(eta)
+        alpha0 = alpha.sum(axis=1)
+        mu = alpha / alpha0[:, None]
+        return B, alpha, mu
+
+    def make_objective(design: np.ndarray):
+        def _nll(par: np.ndarray) -> float:
+            B = np.asarray(par, dtype=float).reshape(design.shape[1], k)
+            eta = np.clip(design @ B, -20.0, 20.0)
+            alpha = np.exp(eta)
+            alpha0 = alpha.sum(axis=1)
+            ll = gammaln(alpha0) - gammaln(alpha).sum(axis=1) + ((alpha - 1.0) * logY).sum(axis=1)
+            if not np.all(np.isfinite(ll)):
+                return 1e100
+            return -float(ll.sum())
+        def _grad(par: np.ndarray) -> np.ndarray:
+            B = np.asarray(par, dtype=float).reshape(design.shape[1], k)
+            eta = np.clip(design @ B, -20.0, 20.0)
+            alpha = np.exp(eta)
+            alpha0 = alpha.sum(axis=1)
+            d_ll_d_alpha = digamma(alpha0)[:, None] - digamma(alpha) + logY
+            d_ll_d_eta = alpha * d_ll_d_alpha
+            return -(design.T @ d_ll_d_eta).ravel()
+        return _nll, _grad
+
+    # Stable starting values: observed mean composition with moderate common
+    # concentration.  Non-intercept slopes begin at zero.
+    mean_y = np.clip(Y.mean(axis=0), 1e-6, None)
+    mean_y /= mean_y.sum()
+    B0 = np.zeros((p, k), dtype=float)
+    const_idx = predictor_names.index("const") if "const" in predictor_names else None
+    if const_idx is not None:
+        B0[const_idx, :] = np.log(mean_y * 20.0)
+    nll, grad = make_objective(Xv)
+    res = optimize.minimize(
+        nll, B0.ravel(), jac=grad, method="BFGS",
+        options={"maxiter": int(max_iter), "gtol": 1e-7},
+    )
+    par = np.asarray(res.x, dtype=float)
+    B, alpha, mu = unpack(par)
+    full_ll = -float(res.fun)
+
+    H = approx_hess(par, nll)
+    cov = np.linalg.pinv(H)
+    se = np.sqrt(np.clip(np.diag(cov), 0, np.inf)).reshape(p, k)
+    rows: list[dict[str, Any]] = []
+    for i, term in enumerate(predictor_names):
+        for j, component in enumerate(components):
+            b = float(B[i, j]); s = float(se[i, j])
+            z = b / s if s > 0 else np.nan
+            rows.append({
+                "component": component, "term": term, "coefficient": b,
+                "std_error": s, "z": z,
+                "p_value": float(2 * stats.norm.sf(abs(z))) if np.isfinite(z) else np.nan,
+                "ci_95_low": b - 1.95996398454 * s,
+                "ci_95_high": b + 1.95996398454 * s,
+                "alpha_ratio": float(np.exp(np.clip(b, -700, 700))),
+            })
+
+    block_rows: list[dict[str, Any]] = []
+    if likelihood_ratio_blocks and x_vars:
+        for var in x_vars:
+            if var in categorical:
+                idxs = [i for i, name in enumerate(predictor_names) if name.startswith(f"{var}_")]
+            else:
+                idxs = [i for i, name in enumerate(predictor_names) if name == var]
+            if not idxs:
+                continue
+            keep = [i for i in range(p) if i not in idxs]
+            Xr = Xv[:, keep]
+            Br0 = B[keep, :].ravel()
+            reduced_nll, reduced_grad = make_objective(Xr)
+            red = optimize.minimize(
+                reduced_nll, Br0, jac=reduced_grad, method="BFGS",
+                options={"maxiter": int(max_iter), "gtol": 1e-7},
+            )
+            red_ll = -float(red.fun)
+            lr = max(0.0, 2.0 * (full_ll - red_ll))
+            df_lr = int(len(idxs) * k)
+            block_rows.append({
+                "predictor_block": var, "dummy_columns_removed": len(idxs),
+                "components": k, "df": df_lr, "LR_chi_square": lr,
+                "p_value": float(stats.chi2.sf(lr, df_lr)),
+                "full_log_likelihood": full_ll, "reduced_log_likelihood": red_ll,
+                "reduced_converged": bool(red.success or np.max(np.abs(reduced_grad(np.asarray(red.x)))) < 1e-5),
+            })
+
+    mean_pred = pd.DataFrame(mu, index=joined.index, columns=[f"predicted_mean::{c}" for c in components])
+    mean_pred.insert(0, "predicted_precision", alpha.sum(axis=1))
+    mean_pred = mean_pred.reset_index(names="row_index")
+    alpha_pred = pd.DataFrame(alpha, index=joined.index, columns=[f"alpha::{c}" for c in components]).reset_index(names="row_index")
+    n_params = p * k
+    fit = pd.DataFrame([{
+        "n": n, "components": k, "design_columns_including_intercept": p,
+        "parameters": n_params, "log_likelihood": full_ll,
+        "aic": 2 * n_params - 2 * full_ll,
+        "bic": n_params * np.log(n) - 2 * full_ll,
+        "converged": bool(res.success), "optimizer_message": str(res.message),
+    }])
+    diagnostics = pd.DataFrame([
+        {"diagnostic": "Parameterisation", "value": "log(alpha_j)=X beta_j", "detail": "Each predictor can affect every composition component."},
+        {"diagnostic": "Reference levels", "value": str(dict(reference_levels or {})), "detail": "Explicit references are used before dummy encoding."},
+        {"diagnostic": "Complete rows", "value": n, "detail": f"{len(df)-n} rows excluded by complete-case filtering."},
+    ])
+    tables = {
+        "Coefficients": pd.DataFrame(rows),
+        "Likelihood-ratio block tests": pd.DataFrame(block_rows),
+        "Fit": fit,
+        "Standardisation": pd.DataFrame(standardization_rows),
+        "Predicted compositions": mean_pred,
+        "Predicted alpha": alpha_pred,
+    }
+    warns = [] if res.success else ["Component-wise Dirichlet optimiser did not report successful convergence; inspect scaling, zeros and model complexity."]
+    return AnalysisResult(
+        tables, diagnostics,
+        {
+            "method": "Dirichlet regression (component-wise log-alpha)",
+            "components": components, "predictors": x_vars,
+            "categorical": categorical, "reference_levels": dict(reference_levels or {}),
+            "standardize_numeric": list(standardize_numeric),
+            "standardization_ddof": 0,
+            "zero_replacement": zero_replacement,
+            "likelihood_ratio_blocks": bool(likelihood_ratio_blocks),
+        },
+        warns, res,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -950,6 +1160,62 @@ def plackett_luce_mixture(
     return AnalysisResult({"Class worths": pd.DataFrame(worth_rows), "Membership": assignment, "Fit": fit_table}, pd.DataFrame(), {"method": "Plackett-Luce mixture", "components": K, "seed": seed}, warns)
 
 
+def plackett_luce_model_selection(
+    df: pd.DataFrame,
+    *,
+    rank_columns: Sequence[str],
+    max_components: int = 5,
+    seed: int = 42,
+    n_init: int = 5,
+    criterion: str = "aic",
+) -> AnalysisResult:
+    """Compare one-component Plackett-Luce with finite mixtures.
+
+    K=1 uses the ordinary Plackett-Luce fit.  For K>=2 several deterministic
+    seed offsets are tried and the highest-likelihood solution is retained
+    before AIC/BIC model comparison.
+    """
+    criterion = str(criterion).lower()
+    if criterion not in {"aic", "bic"}:
+        raise ValueError("Plackett-Luce model selection criterion must be 'aic' or 'bic'.")
+    hi = int(max_components)
+    if hi < 1 or hi > 5:
+        raise ValueError("Plackett-Luce model selection supports 1–5 components.")
+    candidates: dict[int, AnalysisResult] = {}
+    one = plackett_luce(df, rank_columns=rank_columns)
+    candidates[1] = one
+    rows = []
+    r = one.tables["Fit"].iloc[0].to_dict(); r["candidate_classes"] = 1; r["best_seed"] = np.nan; rows.append(r)
+    for K in range(2, hi + 1):
+        best = None
+        best_seed = None
+        for start in range(max(1, int(n_init))):
+            run_seed = int(seed) + 1009 * start + 7919 * K
+            cand = plackett_luce_mixture(df, rank_columns=rank_columns, components=K, seed=run_seed)
+            ll = float(cand.tables["Fit"].iloc[0]["log_likelihood"])
+            if best is None or ll > float(best.tables["Fit"].iloc[0]["log_likelihood"]):
+                best = cand; best_seed = run_seed
+        assert best is not None
+        candidates[K] = best
+        r = best.tables["Fit"].iloc[0].to_dict(); r["candidate_classes"] = K; r["best_seed"] = best_seed; rows.append(r)
+    comparison = pd.DataFrame(rows).sort_values("candidate_classes").reset_index(drop=True)
+    selected_idx = pd.to_numeric(comparison[criterion], errors="coerce").idxmin()
+    selected_k = int(comparison.loc[selected_idx, "candidate_classes"])
+    comparison["selected"] = comparison["candidate_classes"].eq(selected_k)
+    selected = candidates[selected_k]
+    tables = {"Model comparison": comparison}
+    for name, table in selected.tables.items():
+        tables[f"Selected K={selected_k} - {name}"] = table
+    diagnostics = pd.DataFrame([
+        {"diagnostic": "Selection criterion", "value": criterion.upper(), "detail": f"Lowest {criterion.upper()} selected K={selected_k}."},
+        {"diagnostic": "Mixture starts", "value": int(n_init), "detail": f"K>=2 evaluated with deterministic seed offsets from base seed {seed}."},
+    ])
+    warns=[]
+    for K, result in candidates.items():
+        warns.extend([f"K={K}: {w}" for w in result.warnings])
+    return AnalysisResult(tables, diagnostics, {"method":"Plackett-Luce model selection","rank_columns":list(rank_columns),"max_components":hi,"criterion":criterion,"selected_components":selected_k,"seed":int(seed),"n_init":int(n_init)}, warns, selected.raw_result)
+
+
 # ---------------------------------------------------------------------------
 # 6) MCA + Ward and latent-class analysis
 # ---------------------------------------------------------------------------
@@ -959,8 +1225,19 @@ def mca_ward(
     *, categorical_columns: Sequence[str],
     dimensions: int = 5,
     clusters: int = 3,
+    ward_dimensions: int | None = 2,
+    benzecri: bool = True,
 ) -> AnalysisResult:
-    work = df[list(categorical_columns)].astype("string").fillna("<MISSING>")
+    """Multiple correspondence analysis followed by Ward clustering.
+
+    Raw MCA eigenvalues are always retained.  When ``benzecri`` is true the
+    output also reports Benzécri-corrected inertias, which are commonly used to
+    interpret MCA dimensional importance when many indicator columns inflate
+    raw inertia.  Ward clustering can deliberately use fewer dimensions than
+    are exported for inspection.
+    """
+    categorical_columns = list(dict.fromkeys(categorical_columns))
+    work = df[categorical_columns].astype("string").fillna("<MISSING>")
     if len(work) < 5 or len(categorical_columns) < 2:
         raise ValueError("MCA requires at least five rows and two categorical variables.")
     G = pd.get_dummies(work, prefix=categorical_columns, prefix_sep="=", dtype=float)
@@ -975,14 +1252,34 @@ def mca_ward(
     expected = r[:, None] * c[None, :]
     S = (P - expected) / np.sqrt(np.clip(r[:, None] * c[None, :], 1e-300, None))
     U, s, Vt = np.linalg.svd(S, full_matrices=False)
-    d = min(int(dimensions), max(1, len(s)))
+    eig = s**2
+    max_dims = max(1, len(s))
+    d = min(max(int(dimensions), 1), max_dims)
+    wd = d if ward_dimensions is None else min(max(int(ward_dimensions), 1), d)
     row_coords = (U[:, :d] * s[:d]) / np.sqrt(np.clip(r[:, None], 1e-300, None))
     col_coords = (Vt[:d].T * s[:d]) / np.sqrt(np.clip(c[:, None], 1e-300, None))
     row_df = pd.DataFrame(row_coords, index=work.index, columns=[f"Dim{i+1}" for i in range(d)]).reset_index(names="row_index")
     col_df = pd.DataFrame(col_coords, index=G.columns, columns=[f"Dim{i+1}" for i in range(d)]).reset_index(names="category")
-    eig = s**2
-    inertia = pd.DataFrame({"dimension": np.arange(1, len(eig)+1), "eigenvalue": eig, "inertia_pct": 100*eig/eig.sum(), "cumulative_pct": 100*np.cumsum(eig)/eig.sum()})
-    z = linkage(row_coords, method="ward")
+
+    raw_pct = 100 * eig / eig.sum() if eig.sum() > 0 else np.full_like(eig, np.nan)
+    q = len(categorical_columns)
+    threshold = 1.0 / q
+    corrected = np.where(eig > threshold, (q / (q - 1.0))**2 * np.square(eig - threshold), 0.0)
+    corr_sum = corrected.sum()
+    corr_pct = 100 * corrected / corr_sum if corr_sum > 0 else np.zeros_like(corrected)
+    inertia = pd.DataFrame({
+        "dimension": np.arange(1, len(eig)+1),
+        "eigenvalue_raw": eig,
+        "inertia_pct_raw": raw_pct,
+        "cumulative_pct_raw": np.cumsum(raw_pct),
+        "benzecri_threshold_1_over_Q": threshold,
+        "eigenvalue_benzecri": corrected if benzecri else np.nan,
+        "inertia_pct_benzecri": corr_pct if benzecri else np.nan,
+        "cumulative_pct_benzecri": np.cumsum(corr_pct) if benzecri else np.nan,
+    })
+
+    cluster_coords = row_coords[:, :wd]
+    z = linkage(cluster_coords, method="ward")
     cl = fcluster(z, t=int(clusters), criterion="maxclust")
     assignments = pd.DataFrame({"row_index": work.index, "cluster": cl})
     profiles = pd.concat([work.reset_index(names="row_index"), assignments.drop(columns="row_index")], axis=1)
@@ -992,8 +1289,27 @@ def mca_ward(
             counts = g[col].value_counts(normalize=True)
             for level, prop in counts.items():
                 profile_rows.append({"cluster": cluster_id, "variable": col, "level": str(level), "proportion": prop, "n_cluster": len(g)})
-    return AnalysisResult({"Row coordinates": row_df, "Category coordinates": col_df, "Inertia": inertia, "Ward assignments": assignments, "Cluster category profiles": pd.DataFrame(profile_rows)}, pd.DataFrame(), {"method": "MCA + Ward", "columns": list(categorical_columns), "dimensions": d, "clusters": clusters}, [])
-
+    cluster_sizes = assignments["cluster"].value_counts().sort_index().rename_axis("cluster").reset_index(name="n")
+    diagnostics = pd.DataFrame([
+        {"diagnostic": "MCA variables", "value": q, "detail": f"Benzécri threshold = 1/Q = {threshold:.8g}."},
+        {"diagnostic": "Ward dimensions", "value": wd, "detail": f"Ward linkage uses the first {wd} exported MCA dimensions."},
+        {"diagnostic": "Benzécri correction", "value": bool(benzecri), "detail": "Raw eigenvalues are always retained alongside corrected inertia."},
+    ])
+    return AnalysisResult(
+        {
+            "Row coordinates": row_df, "Category coordinates": col_df,
+            "Inertia": inertia, "Ward assignments": assignments,
+            "Cluster sizes": cluster_sizes,
+            "Cluster category profiles": pd.DataFrame(profile_rows),
+        },
+        diagnostics,
+        {
+            "method": "MCA + Ward", "columns": categorical_columns,
+            "dimensions_exported": d, "ward_dimensions": wd,
+            "clusters": int(clusters), "benzecri": bool(benzecri),
+        },
+        [],
+    )
 
 def latent_class_analysis(
     df: pd.DataFrame,
@@ -1069,6 +1385,70 @@ def latent_class_analysis(
     fit = pd.DataFrame([{"n":n,"classes":K,"parameters":params,"log_likelihood":ll,"aic":2*params-2*ll,"bic":params*np.log(n)-2*ll,"classification_entropy":entropy,"normalised_entropy":entropy/(n*np.log(K)),"converged":converged,"iterations":iterations}])
     warns=[] if converged else ["Best LCA start reached the iteration limit before tolerance."]
     return AnalysisResult({"Class profiles":pd.DataFrame(profile_rows),"Membership":membership,"Fit":fit},pd.DataFrame(),{"method":"Latent class analysis","columns":list(categorical_columns),"classes":K,"seed":seed,"n_init":n_init},warns)
+
+
+def latent_class_model_selection(
+    df: pd.DataFrame,
+    *,
+    categorical_columns: Sequence[str],
+    min_classes: int = 2,
+    max_classes: int = 5,
+    seed: int = 42,
+    n_init: int = 10,
+    criterion: str = "bic",
+) -> AnalysisResult:
+    """Fit an LCA class-count sweep and return the selected model.
+
+    The same variables, seed and number of random starts are used for every K.
+    BIC is the default selection rule because it penalises latent-class
+    proliferation more strongly than AIC, but AIC can be selected explicitly.
+    """
+    criterion = str(criterion).lower()
+    if criterion not in {"bic", "aic"}:
+        raise ValueError("LCA model selection criterion must be 'bic' or 'aic'.")
+    lo, hi = int(min_classes), int(max_classes)
+    if lo < 2 or hi > 8 or lo > hi:
+        raise ValueError("LCA class sweep must satisfy 2 <= min_classes <= max_classes <= 8.")
+    results: dict[int, AnalysisResult] = {}
+    rows: list[dict[str, Any]] = []
+    for K in range(lo, hi + 1):
+        result = latent_class_analysis(
+            df, categorical_columns=categorical_columns, classes=K,
+            seed=int(seed), n_init=int(n_init),
+        )
+        results[K] = result
+        fit_row = result.tables["Fit"].iloc[0].to_dict()
+        fit_row["candidate_classes"] = K
+        rows.append(fit_row)
+    comparison = pd.DataFrame(rows).sort_values("candidate_classes").reset_index(drop=True)
+    score_col = criterion
+    valid = comparison[np.isfinite(pd.to_numeric(comparison[score_col], errors="coerce"))]
+    if valid.empty:
+        raise ValueError("No finite LCA information criterion was produced.")
+    selected_k = int(valid.loc[pd.to_numeric(valid[score_col], errors="coerce").idxmin(), "candidate_classes"])
+    comparison["selected"] = comparison["candidate_classes"].eq(selected_k)
+    selected = results[selected_k]
+    tables = {"Model comparison": comparison}
+    for name, table in selected.tables.items():
+        tables[f"Selected K={selected_k} - {name}"] = table
+    diagnostics = pd.DataFrame([
+        {"diagnostic": "Selection criterion", "value": criterion.upper(), "detail": f"Lowest {criterion.upper()} selected K={selected_k}."},
+        {"diagnostic": "Candidate range", "value": f"{lo}–{hi}", "detail": f"{n_init} random starts per candidate; seed={seed}."},
+    ])
+    warns = []
+    for K, result in results.items():
+        warns.extend([f"K={K}: {w}" for w in result.warnings])
+    return AnalysisResult(
+        tables, diagnostics,
+        {
+            "method": "Latent class model selection",
+            "columns": list(categorical_columns), "min_classes": lo,
+            "max_classes": hi, "criterion": criterion,
+            "selected_classes": selected_k, "seed": int(seed),
+            "n_init": int(n_init),
+        },
+        warns, selected.raw_result,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1831,5 +2211,9 @@ METHOD_CATALOGUE = pd.concat([
         ["Partial correlation", "numeric", "linear/rank association conditional on controls", "confirmatory", "specialised"],
         ["Random-effects meta-regression", "study-level evidence", "moderators of heterogeneous effects", "confirmatory", "specialised"],
         ["Raw-normalised parsing audit", "curated/parsed numeric data", "reconcile direct, converted and unparseable sample counts", "quality control", "specialised"],
+        ["Dirichlet component-wise log-alpha", "positive composition", "component-specific covariate effects with LR block tests", "confirmatory", "specialised"],
+        ["Benzécri-corrected MCA + Ward", "categorical multivariate", "corrected inertia plus low-dimensional Ward segmentation", "confirmatory/exploratory", "specialised"],
+        ["Latent-class model selection", "categorical indicators", "automatic K sweep with AIC/BIC selection", "confirmatory/robustness", "specialised"],
+        ["Plackett-Luce model selection", "rankings", "single versus finite-mixture ranking models with AIC/BIC", "confirmatory/robustness", "specialised"],
     ], columns=METHOD_CATALOGUE.columns),
 ], ignore_index=True)
