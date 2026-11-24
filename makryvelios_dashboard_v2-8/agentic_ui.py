@@ -110,8 +110,8 @@ def render_agentic_research(df: pd.DataFrame, selected_label: str = "") -> None:
         st.caption("AI synthesis is a second pass over computed evidence, not a substitute for the statistical/optimisation engines. The submission DOCX/HTML will use the refined sections when available.")
 
     pdf_uploads = st.file_uploader(
-        "Literature PDFs",
-        type=["pdf"],
+        "Literature PDF / Word (DOCX)",
+        type=["pdf", "docx"],
         accept_multiple_files=True,
         key="agentic_pdfs",
         help="Text is extracted locally. Source evidence retains document and page provenance.",

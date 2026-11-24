@@ -149,7 +149,7 @@ def read_tabular_bytes(name: str, payload: bytes, all_sheets: bool = True) -> di
         for encoding in ("utf-8-sig", "utf-8", "cp1253", "latin1"):
             try:
                 src.seek(0)
-                frames[name] = pd.read_csv(src, encoding=encoding, sep=None, engine="python", low_memory=False)
+                frames[name] = pd.read_csv(src, encoding=encoding, sep=None, engine="python")
                 break
             except Exception as exc:  # pragma: no cover - depends on user input
                 last_error = exc

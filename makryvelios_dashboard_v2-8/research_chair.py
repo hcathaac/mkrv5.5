@@ -61,7 +61,16 @@ def extract_pdf_pages(name: str, payload: bytes) -> list[dict[str, Any]]:
 def extract_pdf_collection(items: tuple[tuple[str, bytes], ...]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for name, payload in items:
-        rows.extend(extract_pdf_pages(name, payload))
+        if name.lower().endswith('.docx'):
+            from docx import Document
+            document = Document(io.BytesIO(payload))
+            # DOCX does not encode reliable pagination. Use explicit paragraph/table blocks.
+            blocks = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+            blocks.extend(' | '.join(c.text for c in row.cells) for table in document.tables for row in table.rows)
+            for number, text in enumerate(blocks, start=1):
+                rows.append({'document': name + ' [DOCX block, not page]', 'page': number, 'text': text, 'characters': len(text)})
+        else:
+            rows.extend(extract_pdf_pages(name, payload))
     return pd.DataFrame(rows, columns=["document", "page", "text", "characters"])
 
 
@@ -1774,6 +1783,8 @@ def build_paper_blueprint(
         ["Selected longitudinal evidence chart"] if not result.tables.get("Longitudinal results", pd.DataFrame()).empty else [],
     )
     guide_text = output_guide_markdown(guide).replace("# Output interpretation guide", "## How to read every table and chart", 1)
+    from workbench_v6 import evidence_digest
+    digest = evidence_digest(result.tables)
     return f"""# {title}
 
 ## Proposed contribution
@@ -1815,6 +1826,10 @@ Define every symbol, unit, transformation, reference category, aggregation and e
 {chr(10).join(tables)}
 
 Report point estimates together with uncertainty, sample size, diagnostics and substantive magnitude. Do not select models solely because they return smaller p-values.
+
+## Traceable numerical evidence and reporting notes
+
+{digest}
 
 ## Interpretation
 

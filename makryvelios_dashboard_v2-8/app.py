@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v5.8.5.
+"""Makryvelios Research Analytics & Econometrics Workbench v6.0.0-rc1.
 
 Run locally:  streamlit run app.py
 """
@@ -58,6 +58,8 @@ from research_chair import (
     research_bundle, select_pdf_evidence, year_bounds, chair_interactive_figures,
 )
 from llm_bridge import configured as llm_configured, llm_reply
+from workbench_v6 import frame_hash, METHODS
+from workbench_v6_ui import NEW_PAGES, clear_session, invalidate_on_change, overview, cleaner, loans, conferences, zotero
 
 
 BASE = Path(__file__).resolve().parent
@@ -126,14 +128,25 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .llm-panel b{color:#F5D0FE!important}.llm-panel small{color:#E2E8F0!important}
 .gams-badge{display:inline-block;padding:.24rem .55rem;border-radius:999px;background:#0B1F3A;border:1px solid #38BDF8;color:#F8FAFC!important;font-weight:800;font-size:.78rem}
 
+
+/* v6 dark controls and hover/focus states */
+.stApp [data-testid="stDataFrame"],.stApp [data-testid="stTable"],.stApp [data-testid="stCodeBlock"],.stApp pre,.stApp pre code,.stApp [data-testid="stChatMessage"],.stApp [data-testid="stFileUploaderFile"],.stApp [data-testid="stTextArea"]>div,.stApp [data-testid="stTextInput"]>div,[data-baseweb="select"]>div,[data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"],[role="option"]{background:#132d40!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#426277!important}
+.stApp input,.stApp textarea,.stApp [data-testid="stTextInput"] input,.stApp [data-testid="stTextArea"] textarea,.stApp [contenteditable="true"],section[data-testid="stSidebar"] [data-testid="stTextInput"] input,section[data-testid="stSidebar"] [data-testid="stTextInput"] input[type="password"]{background:#132d40!important;color:#fff!important;-webkit-text-fill-color:#fff!important;caret-color:#fff!important;color-scheme:dark!important}
+.stApp input::placeholder,.stApp textarea::placeholder{color:#c8d7e3!important;-webkit-text-fill-color:#c8d7e3!important}
+.stApp [data-testid="stTable"] *,[role="option"] *,[data-baseweb="menu"] *,section[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] *,section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] *{color:#fff!important;-webkit-text-fill-color:#fff!important}
+[role="option"]:hover,[role="option"]:focus,[role="option"][aria-selected="true"],.stApp button:hover,.stApp button:focus-visible{background:#244d68!important;color:#fff!important;-webkit-text-fill-color:#fff!important}
+.stApp [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] *{color:#fff!important;-webkit-text-fill-color:#fff!important}
+
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v5.8.5 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v6.0.0-rc1 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
 def parse_payloads(items: tuple[tuple[str, bytes], ...], all_sheets: bool, normalise: bool) -> dict[str, pd.DataFrame]:
     frames: dict[str, pd.DataFrame] = {}
+    if len({name for name, _ in items}) != len(items):
+        raise ValueError("Rename duplicate uploaded filenames before analysis.")
     for name, payload in items:
         for label, frame in read_tabular_bytes(name, payload, all_sheets=all_sheets).items():
             frames[label] = tidy_frame(frame, normalise_columns=normalise)
@@ -149,17 +162,6 @@ def parse_pdf_payloads(items: tuple[tuple[str, bytes], ...]) -> pd.DataFrame:
 def cached_geojson(level: str, custom: bytes | None = None) -> dict:
     return fetch_geojson(level, custom)
 
-
-def load_bundled() -> dict[str, pd.DataFrame]:
-    candidates = list(DATA.glob("*.xlsx")) + list(DATA.glob("*.csv"))
-    frames: dict[str, pd.DataFrame] = {}
-    for path in candidates:
-        try:
-            for label, frame in read_tabular_bytes(path.name, path.read_bytes(), all_sheets=False).items():
-                frames[label] = tidy_frame(frame, normalise_columns=True)
-        except Exception:
-            continue
-    return frames
 
 
 def download_table(label: str, table: pd.DataFrame, filename: str) -> None:
@@ -243,9 +245,13 @@ def figure_with_downloads(fig, stem: str, data: pd.DataFrame | None = None, expl
 with st.sidebar:
     st.header("Data intake console")
     st.markdown('<div style="padding:.55rem .7rem;margin:0 0 .5rem;border:1px solid #1d7282;border-radius:9px;background:#12374b;color:#8cf4ff;font-size:.78rem;font-weight:800;letter-spacing:.06em">⬆ SECURE MULTI-FILE UPLOAD</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader("Upload one or many XLSX/XLS/CSV/TSV/Parquet/Arrow files", type=["xlsx", "xlsm", "xls", "csv", "tsv", "parquet", "pq", "feather", "arrow"], accept_multiple_files=True)
-    all_sheets = st.checkbox("Read every Excel sheet", value=True)
-    normalise = st.checkbox("Normalise variable names", value=True, help="Recommended for modelling; original values are not altered.")
+    if st.button("Clear analysis results / parsing cache", key="_v6_clear"):
+        parse_payloads.clear(); parse_pdf_payloads.clear(); clear_session()
+    if st.button("Reset entire session (uploads and keys)", key="_v6_reset"):
+        parse_payloads.clear(); parse_pdf_payloads.clear(); clear_session(hard=True)
+    uploaded = st.file_uploader("Upload one or many XLSX/XLS/CSV/TSV/Parquet/Arrow files", type=["xlsx", "xlsm", "xls", "csv", "tsv", "parquet", "pq", "feather", "arrow"], accept_multiple_files=True, key=f"_v6_upload_{st.session_state.get('_v6_epoch',0)}")
+    all_sheets = st.checkbox("Read every Excel sheet", value=True, key="_v6_intake_sheets")
+    normalise = st.checkbox("Normalise variable names", value=True, help="Recommended for modelling; original values are not altered.", key="_v6_intake_normalise")
     if uploaded:
         payloads = tuple((f.name, f.getvalue()) for f in uploaded)
         try:
@@ -254,9 +260,11 @@ with st.sidebar:
             st.error(f"Upload could not be read: {exc}")
             frames = {}
     else:
-        frames = load_bundled()
-        if frames:
-            st.caption("Bundled R&D reference workbook loaded. Uploading files replaces it for this session.")
+        frames = {}
+    raw_frames = frames.copy()
+    cleaned_sources = st.session_state.get('_v6_cleaned', {})
+    frames = {label: cleaned_sources[label][1] if label in cleaned_sources and cleaned_sources[label][0] == frame_hash(frame) else frame for label, frame in raw_frames.items()}
+    st.session_state['_v6_cleaned'] = {label: item for label, item in cleaned_sources.items() if label in raw_frames and item[0] == frame_hash(raw_frames[label])}
 
     if frames:
         relationship_options = [
@@ -267,11 +275,11 @@ with st.sidebar:
         ]
         mode = st.selectbox(
             "Dataset relationship",
-            relationship_options,
+            relationship_options, key="_v6_intake_relationship",
             help="Choose whether to analyse one source, place all selected source columns side-by-side, append observations, or join sources by verified keys.",
         )
         if mode == "Keep datasets separate":
-            selected_label = st.selectbox("Active dataset", list(frames))
+            selected_label = st.selectbox("Active dataset", list(frames), key="_v6_intake_active")
             selected_frames = {selected_label: frames[selected_label]}
         else:
             analytical_defaults = [label for label, frame in frames.items() if is_likely_analytical_frame(label, frame)]
@@ -279,7 +287,7 @@ with st.sidebar:
             selected_datasets = st.multiselect(
                 "Datasets to combine",
                 list(frames),
-                default=analytical_defaults or list(frames),
+                default=analytical_defaults or list(frames), key="_v6_intake_combine",
                 help="Probable observation tables are selected automatically. README, dictionary, codebook, crosswalk, metadata and processing sheets remain available but are excluded by default.",
             )
             selected_frames = {label: frames[label] for label in selected_datasets}
@@ -290,8 +298,8 @@ with st.sidebar:
                 st.warning("Select at least one dataset to continue.")
 
         common = sorted(set.intersection(*(set(d.columns) for d in selected_frames.values()))) if len(selected_frames) > 1 else (list(next(iter(selected_frames.values())).columns) if selected_frames else [])
-        join_keys = st.multiselect("Join key(s)", common) if mode == "Join datasets on key(s)" else []
-        join_how = st.selectbox("Join type", ["outer", "left", "inner", "right"]) if join_keys else "outer"
+        join_keys = st.multiselect("Join key(s)", common, key="_v6_intake_join_keys") if mode == "Join datasets on key(s)" else []
+        join_how = st.selectbox("Join type", ["outer", "left", "inner", "right"], key="_v6_intake_join_type") if join_keys else "outer"
         if mode == "Combine columns side-by-side (by row order)" and selected_frames:
             row_counts = {label: len(frame) for label, frame in selected_frames.items()}
             st.info("All columns from the selected datasets will be available together in every analytical module.")
@@ -309,13 +317,13 @@ with st.sidebar:
                 df = frames[selected_label] if mode == "Keep datasets separate" else combine_frames(selected_frames, mode, join_keys, join_how)
         except Exception as exc:
             st.error(str(exc))
-            fallback_label = next(iter(frames))
-            selected_label = fallback_label
-            df = frames[fallback_label]
+            selected_label = "Combination failed — no active dataset"
+            df = pd.DataFrame()
     else:
         selected_label = "No dataset"
         df = pd.DataFrame()
 
+    invalidate_on_change((selected_label, frame_hash(df), tuple((label, frame_hash(frame)) for label, frame in frames.items())))
     st.markdown('<div class="llm-panel"><b>AI / LLM RESEARCH ENGINE</b><br><small>Optional. Numerical analysis and optimisation remain deterministic. Choose hosted AI, a free-plan route, or local Ollama.</small></div>', unsafe_allow_html=True)
     llm_provider = st.selectbox(
         "AI provider",
@@ -410,7 +418,13 @@ with st.sidebar:
         "12D. Agentic Research Mode",
         "13. Methods & reproducibility",
     ]
-    page = st.radio("Module", pages)
+    pages.extend(NEW_PAGES)
+    groups = ["All modules"] + list(dict.fromkeys(row[0] for row in METHODS))
+    family = st.selectbox("Method family", groups, key="_v6_family")
+    visible_pages = pages if family == "All modules" else [pages[0]] + [row[1] for row in METHODS if row[0] == family and row[1] in pages]
+    if st.session_state.get("_v6_module") not in visible_pages:
+        st.session_state["_v6_module"] = visible_pages[0]
+    page = st.radio("Module", visible_pages, key="_v6_module")
     with st.expander("Quick operating guide", expanded=False):
         st.markdown("1. Upload or select data.\n2. Audit variables.\n3. Choose a research question.\n4. Run the matching method.\n5. Read assumptions and diagnostics.\n6. Download tables, figures and the reproducibility record.")
         st.caption("Interactive figures also expose Plotly's camera icon in the top-right toolbar. Use the explicit publication bundle for 600-dpi and vector output.")
@@ -418,7 +432,10 @@ with st.sidebar:
         st.caption(f"Active: {selected_label}\n\n{len(df):,} rows × {df.shape[1]:,} variables")
 
 
-if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode"}:
+if page == "1. Executive overview":
+    overview(frames, pages)
+
+if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode", "13. Methods & reproducibility", *NEW_PAGES}:
     st.info("Upload one or more Excel/CSV files in the sidebar. The app accepts multiple files and multiple workbook sheets simultaneously.")
     st.subheader("Research programme already encoded")
     guided_dataframe("Encoded research programme", RQS)
@@ -1409,8 +1426,8 @@ elif page == "12B. Research Command Chair":
     st.info("Privacy-first default: spreadsheet and PDF processing remains inside the running app and no paid API key is required. An external LLM receives only a compact computed-evidence summary when the user explicitly selects the External LLM engine and presses Ask; every core function and export remains available offline.")
 
     pdf_uploads = st.file_uploader(
-        "Upload one or many supporting PDFs",
-        type=["pdf"],
+        "Upload supporting PDF or Word (DOCX) documents",
+        type=["pdf", "docx"],
         accept_multiple_files=True,
         key="chair_pdf_uploads",
         help="PDFs are indexed page-by-page locally. Scanned image-only PDFs require OCR before text can be analysed.",
@@ -1896,7 +1913,7 @@ The numerical answer is recalculated from the currently saved rows and variables
                             "deterministic_interpretation": deterministic_reply,
                         }
                         reply = llm_reply(
-                            "Answer the research question using ONLY the computed evidence below. Preserve all numerical values, distinguish computation from interpretation, identify limitations, and provide publication-ready wording where appropriate.\n\n" + json.dumps(evidence_payload, ensure_ascii=False, default=str),
+                            "Answer using ONLY the computed evidence below. Structure the response into research question, data scope and variable roles, method and assumptions, numerical findings with table names and exact values, uncertainty and diagnostics, substantive interpretation, limitations, robustness checks, and proposed publication wording. State explicitly when evidence is missing or a test was not executed. Do not invent citations, coefficients, sample sizes, p-values or causal effects. Preserve all numerical values.\n\n" + json.dumps(evidence_payload, ensure_ascii=False, default=str),
                             external_llm,
                         )
                     else:
@@ -1928,6 +1945,14 @@ The numerical answer is recalculated from the currently saved rows and variables
             st.warning("Scientific safeguard: PDF passages are notes, not automatically verified citations; equations are documented instructions; custom algorithms are not treated as validated estimators unless implemented and tested. Review every claim before submission.")
 
 
+elif page == "14. Data cleaning & validation":
+    cleaner(raw_frames, df, selected_label)
+elif page == "15. Public loan forecasting":
+    loans(df)
+elif page == "16. Conference & CFP discovery":
+    conferences()
+elif page == "17. Zotero bibliography":
+    zotero()
 elif page == "13. Methods & reproducibility":
     module_guide("Document the analytical coverage, implementation choices and reproducibility route.", "Use the catalogue to identify an estimator, then retain the exported data, model configuration, seed and software version with the manuscript.", "Reproducibility requires the exact data version and transformations, not only the estimator name.")
     st.subheader("Implemented analytical families")
@@ -1964,9 +1989,11 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 5.8.5 documentation library")
+    st.subheader("Version 6.0.0-rc1 documentation library")
+    st.markdown("v6 adds independent data intake, cleaning and audit, grouped navigation, loan forecasting, CFP discovery, Zotero and a local MCP adapter. The documentation below records historical capabilities.")
     st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.5 is strictly additive over v5.8.4. It adds bounded, user-visible AI context profiles, focus-variable routing, relevance-ranked PDF evidence, per-request RQ batching and conservative token estimates so free-tier hosted models are not sent the entire 83+ variable/PDF context. Provider/model selection remains manual and visible with no automatic fallback. Version 5.8.4 hardened structured full-draft synthesis; v5.8.3 hardened RQ parsing; v5.8.2 added Gemini/Groq/Ollama and AI synthesis; all earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capabilities remain available.")
     documentation_files = [
+        ("v6 upgrade and deployment guide", "WORKBENCH_V6.md", "text/markdown"),
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),
         ("Complete searchable documentation — Markdown", "COMPLETE_DOCUMENTATION.md", "text/markdown"),

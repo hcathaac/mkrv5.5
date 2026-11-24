@@ -6,7 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 at = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py", default_timeout=90)
 source = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
-assert "POSTDOCTORAL ANALYTICAL ENGINE v5.8.2" in source
+assert "POSTDOCTORAL ANALYTICAL ENGINE v6.0.0-rc1" in source
 assert "12B. Research Command Chair" in source
 assert "12A.1 ITA / public-funding decision support" in source
 assert "12A.1B GAMS-compatible ITA Studio" in source
@@ -14,8 +14,8 @@ assert "12A.2 Expert respondent analytics" in source
 assert "12C. Frontier methods laboratory" in source
 assert "12D. Agentic Research Mode" in source
 assert "ALL v5.7.2 + EARLIER CAPABILITIES RETAINED" in source
-assert "Version 5.8.1 documentation library" in source
-assert "LLM CO-PILOT · USER API KEY" in source
+assert "Version 6.0.0-rc1 documentation library" in source
+assert "AI / LLM RESEARCH ENGINE" in source
 assert "render_gams_studio" in source
 assert "stFileUploaderDropzone" in source
 assert "stWidgetLabel" in source
@@ -29,6 +29,8 @@ assert "Copy-ready questions and analytical commands" in source
 assert "How to read and use:" in source
 at.run()
 assert not at.exception, at.exception
+assert not (Path(__file__).resolve().parents[1] / "data/rd_projects_reference.xlsx").exists()
+assert any("Research workflow navigator" in h.value for h in at.subheader)
 module = next(widget for widget in at.radio if widget.label == "Module")
 failures = []
 for page in module.options:

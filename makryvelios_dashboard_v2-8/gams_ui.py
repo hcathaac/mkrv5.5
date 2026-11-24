@@ -537,7 +537,7 @@ def render_gams_studio(df: pd.DataFrame) -> None:
     if preset_name == "Vangelis – SYN2 540":
         syn2_mode = st.radio(
             "SYN2 input source",
-            ["Original supplied GAMS inputs (recommended for exact replication)", "Current application dataset"],
+            ["Current application dataset", "Original supplied GAMS inputs (recommended for exact replication)"],
             horizontal=True,
             key="gams_syn2_input_source",
         )

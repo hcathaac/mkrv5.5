@@ -1,3 +1,10 @@
+# 6.0.0-rc1 — integrated upgrade candidate
+
+- Blank input, removal of bundled R&D workbook, guarded intake/combination, corrected CSV reading, grouped methods and overview router.
+- Session management, reversible data cleaning, loan forecasts and schedules, CFP discovery, Zotero read-only bibliography, PDF/DOCX evidence and enhanced research drafts.
+- Dark theme, local MCP adapter, retained GAMS and existing analytical modules.
+- Targeted checks 9/9 passed; full UI/remote API and integration verification pending. See documentation/WORKBENCH_V6.md.
+
 # v5.8.5 — 2026-09-06 — Compact visible AI context controls
 
 - Additive hotfix only; no feature/module/export removal.

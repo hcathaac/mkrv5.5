@@ -6,11 +6,30 @@ from streamlit.testing.v1 import AppTest
 
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
-at = AppTest.from_file(APP, default_timeout=120)
+# Explicit synthetic test fixture; no production bundled dataset or bypass.
+# AppTest does not consistently expose file_uploader across Streamlit versions.
+import tempfile
+source = APP.read_text(encoding="utf-8")
+fixture = """    else:
+        rng = np.random.default_rng(42)
+        n = 240
+        years = np.tile(np.arange(2010, 2020), 24)
+        budget = rng.uniform(10000, 100000, n)
+        duration = rng.integers(1, 6, n)
+        frames = {"Synthetic QA fixture": pd.DataFrame({"Region": np.repeat([f"R{i}" for i in range(8)], 30), "Project_start_year": years, "Project_Duration_year": duration, "Final_Project_s_Budjet_at_the_end_of_the_project": budget, "absorption_rate_budget": .2 + budget / 150000 + rng.normal(0,.05,n), "score": rng.normal(size=n)})}
+    raw_frames = frames.copy()"""
+anchor = "    else:\n        frames = {}\n    raw_frames = frames.copy()"
+assert source.count(anchor) == 1
+# Put the temporary script beside app.py so __file__-relative assets resolve.
+with tempfile.NamedTemporaryFile(mode="w", suffix=".py", dir=APP.parent, delete=False, encoding="utf-8") as tmp:
+    tmp.write(source.replace(anchor, fixture)); temporary_app = Path(tmp.name)
+import atexit
+atexit.register(temporary_app.unlink, missing_ok=True)
+at = AppTest.from_file(temporary_app, default_timeout=120)
 at.run()
 assert not at.exception, at.exception
 
-# Exercise a real OLS estimation using the bundled R&D workbook.
+# Exercise a real OLS estimation using an explicit synthetic test fixture.
 module = next(w for w in at.radio if w.label == "Module")
 module.set_value("6. OLS & econometric laboratory")
 at.run()

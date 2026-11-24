@@ -1363,6 +1363,8 @@ def _paper_markdown(run: AgenticRun, title: str = "Agentic Research Draft") -> s
             doi = f" DOI: {row.doi}." if getattr(row, "doi", "") else ""
             source_lines.append(f"- {row.document}, p. {row.page}.{doi} {row.snippet[:300]}")
     sources = "\n".join(source_lines) or "- No PDF evidence supplied."
+    from workbench_v6 import evidence_digest
+    digest = evidence_digest(run.tables)
     return f"""# {title}
 
 ## Status
@@ -1388,6 +1390,10 @@ The workflow audited the active dataset, produced descriptive and association ev
 ## Results
 
 {run.narratives.get('results', run.narratives.get('discussion',''))}
+
+## Traceable numerical evidence and reporting notes
+
+{digest}
 
 ## Discussion
 
@@ -1471,6 +1477,13 @@ def _agentic_docx_bytes(run: AgenticRun, title: str) -> bytes:
     if png:
         document.add_heading("Selected analytical figure", level=2)
         document.add_picture(io.BytesIO(png), width=Inches(6.3))
+    from workbench_v6 import evidence_digest
+    document.add_heading("Traceable numerical evidence and reporting notes", level=1)
+    for block in evidence_digest(run.tables).split("\n\n"):
+        if block.startswith("### "):
+            document.add_heading(block[4:], level=2)
+        else:
+            document.add_paragraph(block)
     document.add_heading("Discussion", level=1)
     document.add_paragraph(run.narratives.get("discussion", ""))
     document.add_heading("Conclusion", level=1)
