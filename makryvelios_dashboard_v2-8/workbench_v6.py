@@ -14,7 +14,7 @@ METHODS = [
  ('Econometrics & forecasting','6. OLS & econometric laboratory','Use OLS for continuous outcomes, GLMs for binary/count outcomes, IV or DiD only with identification assumptions.'),
  ('Econometrics & forecasting','6A. Monte Carlo & uncertainty','Assess sampling or portfolio uncertainty; record seeds and distribution assumptions.'),
  ('Econometrics & forecasting','7. 1,000 × 1,000 batch engine','Screen many relationships; apply multiplicity controls and independent confirmation.'),
- ('Econometrics & forecasting','8. Original R&D regional panel','Use the original project schema for regional aggregation; not appropriate for arbitrary tables.'),
+ ('Econometrics & forecasting','8. Project-to-region-year panel','Aggregate compatible uploaded project records to regional year panels; use generic panel modelling for other schemas.'),
  ('Econometrics & forecasting','8A. Panel model laboratory','Repeated entities over time; verify unique entity-time keys, variation and covariance assumptions.'),
  ('Econometrics & forecasting','10. Time series & multivariate','Regular time series for ARIMA/Granger; numeric variables for PCA and scale reliability.'),
  ('Econometrics & forecasting','10B. Predictive model laboratory','Estimate predictive performance out of sample; avoid target leakage; use temporal validation for temporal data.'),

@@ -274,3 +274,6 @@
 - Normalises nested JSON schemas for Groq strict Structured Outputs (`additionalProperties=false`, all object properties required).
 - Keeps GPT-OSS instructions in the user turn, following Groq reasoning-model guidance.
 - Empty-content errors now report finish reason, completion usage and whether reasoning was present instead of a generic 'no text content' message.
+
+## 6.0.0-rc2 — blank research workspace
+No historic data, research catalogues or case-specific funding presets. User-defined ITA/GAMS inputs; neutral offline Greece map before upload; mapped analyses retained.

@@ -133,23 +133,3 @@ def build_region_year_panel(df: pd.DataFrame, allocation: str = "End-year") -> p
     panel = panel.merge(REGIONS[["nuts_id", "region_el", "region_en", "lat", "lon"]], on="nuts_id", how="left")
     return panel
 
-
-def original_model_presets(df: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
-    end_covariates = [find_col(df, name) for name in [
-        "GDP_Region_End_Year", "GDP_Region_per_person_End_Year", "Employment_Region_End_Year",
-        "Researchers_numbers_Region_End_Year", "Researchers_number_Region_End_Year", "R_D_exp_int_Region_End_Year",
-    ]]
-    end_covariates = list(dict.fromkeys(c for c in end_covariates if c))
-    rows = [
-        ("EE1-project", find_col(df, "(% absorption rate / budget)"), "Project", "OLS HC3", end_covariates),
-        ("EE2", find_col(df, "Indicator_6_Nub_of_resear_job_IPA"), "Project", "OLS HC3 / Poisson robustness", end_covariates),
-        ("EE3", find_col(df, "Indicator_501_jobs_dur_the_operat_IPA"), "Project", "OLS HC3 / Poisson robustness", end_covariates),
-        ("EE5", find_col(df, "Indicator_3106_Nub_comp_benef"), "Project", "Poisson/NB; OLS benchmark", end_covariates),
-        ("EE1-panel", "regional_absorption_index", "Region–year", "Fractional logit / Poisson QMLE", []),
-        ("EE4", "project_count", "Region–year", "Poisson FE / Negative binomial", []),
-        ("EE6", "collaborative_projects", "Region–year", "Poisson FE / Negative binomial", []),
-        ("EE7", "patents", "Region–year", "Poisson FE / Negative binomial", []),
-        ("EE8", "spin_offs", "Region–year", "Poisson FE / Negative binomial", []),
-        ("EE9", "smes_benefited", "Region–year", "Poisson FE / Negative binomial", []),
-    ]
-    return pd.DataFrame([{"model": model, "outcome": outcome, "unit": unit, "recommended_estimator": estimator, "core_regressors": "; ".join(xs)} for model, outcome, unit, estimator, xs in rows if outcome])

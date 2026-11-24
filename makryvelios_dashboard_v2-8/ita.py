@@ -21,31 +21,8 @@ from scipy.optimize import Bounds, LinearConstraint, milp
 from scipy.sparse import csr_matrix
 
 
-CALL_BUDGETS = {
-    "AT01": 300_000_000.0,
-    "AT02": 200_000_000.0,
-    "AT03": 150_000_000.0,
-    "AT04": 220_000_000.0,
-    "AT05": 150_000_000.0,
-    "AT06": 400_000_000.0,
-    "AT07": 200_000_000.0,
-    "AT08": 130_000_000.0,
-    "AT09": 100_000_000.0,
-    "AT10": 40_000_000.0,
-    "AT11": 40_000_000.0,
-    "AT12": 120_000_000.0,
-    "AT14": 50_000_000.0,
-}
-
-BENEFICIARY_CATEGORY_CAPS = {
-    "M1": 40_000_000.0,
-    "M2": 25_000_000.0,
-    "M3": 22_000_000.0,
-    "M4": 18_000_000.0,
-    "M5": 12_000_000.0,
-    "M6": 6_000_000.0,
-    "M7": 30_000_000.0,
-}
+CALL_BUDGETS = {}
+BENEFICIARY_CATEGORY_CAPS = {}
 
 DEFAULT_CRITERION_WEIGHTS = {
     "C1": 0.25,
@@ -76,8 +53,8 @@ class ITAOutput:
 
 def normalise_call_code(value: object) -> str:
     text = str(value).strip().upper().replace("Α", "A").replace("Τ", "T")
-    digits = re.sub(r"\D", "", text)
-    return f"AT{int(digits):02d}" if digits else text
+    match = re.fullmatch(r"AT[\s_-]*(\d+)", text)
+    return f"AT{int(match.group(1)):02d}" if match else str(value).strip()
 
 
 def _truthy(series: pd.Series) -> pd.Series:

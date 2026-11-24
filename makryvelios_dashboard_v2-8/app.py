@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v6.0.0-rc1.
+"""Makryvelios Research Analytics & Econometrics Workbench v6.0.0-rc2.
 
 Run locally:  streamlit run app.py
 """
@@ -30,10 +30,10 @@ from analytics_core import (
     arima_forecast, cronbach_alpha, monte_carlo_ols, monte_carlo_portfolio,
     outlier_summary, is_likely_analytical_frame,
 )
-from legacy_rd import build_region_year_panel, is_rd_dataset, original_model_presets, rd_column_blocks
+from legacy_rd import build_region_year_panel, is_rd_dataset, rd_column_blocks
 from mapping import (
     GISCO_URLS, aggregate_geography, choropleth_figure, fetch_geojson,
-    map_commentary, moran_diagnostics, static_map_bytes,
+    map_commentary, moran_diagnostics, static_map_bytes, detailed_offline_map_figure,
 )
 from reporting import build_html_report
 from advanced_analytics import advanced_clustering, panel_model_suite, predictive_model_comparison
@@ -64,9 +64,6 @@ from workbench_v6_ui import NEW_PAGES, clear_session, invalidate_on_change, over
 
 BASE = Path(__file__).resolve().parent
 DATA = BASE / "data"
-RQS = pd.read_csv(BASE / "research_questions.csv")
-HYPOTHESES = pd.read_csv(BASE / "research_hypotheses.csv")
-EVIDENCE = pd.read_csv(BASE / "source_evidence_catalogue.csv")
 
 st.set_page_config(page_title="Makryvelios Research Analytics", page_icon="🇬🇷", layout="wide", initial_sidebar_state="expanded")
 px.defaults.template = "plotly_dark"
@@ -138,7 +135,7 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .stApp [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] *{color:#fff!important;-webkit-text-fill-color:#fff!important}
 
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v6.0.0-rc1 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>R&amp;D projects • «Αντώνης Τρίτσης» • renewable-energy portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v6.0.0-rc2 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>Dataset-independent research • public finance • project portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
 """, unsafe_allow_html=True)
 
 
@@ -404,7 +401,7 @@ with st.sidebar:
         "1. Executive overview", "2. Data hub & audit", "3. Research questions",
         "4. Descriptive statistics", "5. Hypothesis tests", "6. OLS & econometric laboratory",
         "6A. Monte Carlo & uncertainty",
-        "7. 1,000 × 1,000 batch engine", "8. Original R&D regional panel",
+        "7. 1,000 × 1,000 batch engine", "8. Project-to-region-year panel",
         "8A. Panel model laboratory",
         "9. Detailed Greece GIS", "10. Time series & multivariate",
         "10A. Advanced clustering & segmentation", "10B. Predictive model laboratory",
@@ -433,12 +430,19 @@ with st.sidebar:
 
 
 if page == "1. Executive overview":
-    overview(frames, pages)
+    overview(frames, pages, df)
 
-if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode", "13. Methods & reproducibility", *NEW_PAGES}:
+if df.empty and page == "9. Detailed Greece GIS":
+    st.subheader("Greece — geographic boundaries only")
+    st.info("No dataset loaded. Neutral polygons represent geography only, not zero values. Upload a dataset to map actual results.")
+    n2 = cached_geojson("NUTS 2 – Regions (13)")
+    n3 = cached_geojson("NUTS 3 – Regional units")
+    empty_map = pd.DataFrame({"nuts_id": pd.Series(dtype=str), "value": pd.Series(dtype=float)})
+    st.plotly_chart(detailed_offline_map_figure(empty_map, "value", nuts2_geojson=n2, nuts3_geojson=n3, title="Greece · NUTS-2 / NUTS-3 · no mapped values"), width="stretch")
+    st.stop()
+
+if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode", "13. Methods & reproducibility", "3. Research questions", *NEW_PAGES}:
     st.info("Upload one or more Excel/CSV files in the sidebar. The app accepts multiple files and multiple workbook sheets simultaneously.")
-    st.subheader("Research programme already encoded")
-    guided_dataframe("Encoded research programme", RQS)
     st.stop()
 
 numeric = list(df.select_dtypes(include=np.number).columns)
@@ -457,7 +461,7 @@ if page == "1. Executive overview":
     c2.metric("Variables", f"{df.shape[1]:,}")
     c3.metric("Numeric", f"{len(numeric):,}")
     c4.metric("Categorical", f"{len(categorical):,}")
-    c5.metric("Encoded source RQs", len(RQS))
+    c5.metric("Uploaded sources", len(frames))
     st.subheader("Analysis navigator")
     navigator = pd.DataFrame([
         ["OLS & robust regression", "6. OLS & econometric laboratory", "Continuous outcomes; transparent conditional associations", "Coefficient, CI, diagnostics, fitted/residual evidence"],
@@ -465,7 +469,7 @@ if page == "1. Executive overview":
         ["Monte Carlo portfolio", "6A. Monte Carlo & uncertainty", "R&D project selection under uncertain cost and benefit", "Selection probabilities and portfolio-risk distribution"],
         ["Logit / Probit / Counts", "6. OLS & econometric laboratory", "Binary, fractional or count outcomes", "GLM coefficients, fit and dispersion diagnostics"],
         ["1,000 × 1,000 OLS", "7. 1,000 × 1,000 batch engine", "High-dimensional discovery and screening", "All coefficient cells plus multiplicity correction"],
-        ["Regional panel", "8. Original R&D regional panel", "EE1–EE9 region-year questions", "Panel tables, original model presets and trends"],
+        ["Regional panel", "8. Project-to-region-year panel", "Project-level data requiring regional aggregation", "Panel tables and trends"],
         ["FE / RE panel models", "8A. Panel model laboratory", "Repeated entity-time observations", "Pooled, two-way FE, RE and Hausman evidence"],
         ["Greece spatial analysis", "9. Detailed Greece GIS", "NUTS-2/NUTS-3 geographical patterns", "Maps, Moran/LISA tables and publication files"],
         ["Time series / PCA / legacy clusters", "10. Time series & multivariate", "Temporal and multivariate structure", "Exact test, loading, forecast and cluster tables"],
@@ -491,7 +495,7 @@ if page == "1. Executive overview":
         composition_fig = px.bar(comp, x="type", y="variables", color="type", title="Variable types")
         figure_with_downloads(composition_fig, "executive_variable_composition", comp, "Numeric variables are immediately available to quantitative models; categorical variables can enter as controls or fixed effects where supported.")
     if is_rd_dataset(df):
-        st.success("The original 83-variable Makryvelios R&D structure was detected. The dedicated regional-panel and research-question presets are enabled.")
+        st.success("The uploaded schema supports project-to-region-year aggregation. The regional panel method is available.")
     st.caption("Default view is descriptive. No result is interpreted causally unless an explicit identification strategy is supplied.")
 
 
@@ -522,15 +526,27 @@ elif page == "2. Data hub & audit":
 
 
 elif page == "3. Research questions":
-    module_guide("Connect each analysis to the documented R&D and Antonis Tritsis research programme.", "Filter the programme, inspect the exact question and hypotheses, then export the catalogue for the methods or manuscript file.", "Questions and hypotheses should be specified before inspecting model significance to reduce data-driven inference.")
-    st.subheader("Recovered R&D questions and extended Antonis Tritsis programme")
-    programme = st.multiselect("Programme", sorted(RQS.programme.unique()), default=sorted(RQS.programme.unique()))
-    questions = RQS[RQS.programme.isin(programme)]
-    guided_dataframe("Research questions", questions)
-    st.subheader("Source hypotheses: R&D EE1–EE9")
-    guided_dataframe("Source hypotheses", HYPOTHESES)
-    st.caption("EE1–EE9 and their hypotheses are transcribed from the supplied Stata research-question document. AT-RQ1–AT-RQ11 are explicitly labelled reconstructions from the documented 1,454-project dataset scope; AT-RQ12 is a new cross-dataset question.")
-    st.download_button("Download question catalogue", to_excel_bytes({"Research questions": RQS, "Hypotheses": HYPOTHESES}), "research_questions_and_hypotheses.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    module_guide("Define an original research programme from your own question, hypotheses and variable definitions.", "Enter research questions and hypotheses or import your own CSV/XLSX catalogue; then use Research Command Chair or Agentic Research Mode for computation.", "Specify hypotheses before inspecting significance. No historic questions or findings are preloaded.")
+    st.subheader("Your research design")
+    design = st.file_uploader("Optional research-design catalogue (CSV/XLSX)", type=["csv", "xlsx"], key="rc2_design_upload")
+    if design:
+        try:
+            catalogues = read_tabular_bytes(design.name, design.getvalue(), all_sheets=True)
+            for name, table in catalogues.items():
+                st.write(name)
+                st.dataframe(table, hide_index=True)
+            st.download_button("Download imported research design", to_excel_bytes(catalogues), "research_design.xlsx")
+        except Exception as exc:
+            st.error(str(exc))
+    question = st.text_area("Principal research question", key="rc2_design_question")
+    hypotheses = st.text_area("Hypotheses (one per line)", key="rc2_design_hypotheses")
+    definitions = st.text_area("Variable definitions, unit of observation and identification assumptions", key="rc2_design_definitions")
+    design_table = pd.DataFrame([{"research_question": question, "hypotheses": hypotheses, "definitions": definitions}])
+    st.download_button("Download research design", to_excel_bytes({"Research design": design_table}), "research_design.xlsx", disabled=not question.strip())
+    def open_chair():
+        st.session_state["_v6_family"] = "All modules"
+        st.session_state["_v6_module"] = "12B. Research Command Chair"
+    st.button("Open Research Command Chair", on_click=open_chair)
 
 
 elif page == "4. Descriptive statistics":
@@ -834,10 +850,10 @@ elif page == "7. 1,000 × 1,000 batch engine":
         st.warning("This batch mode is a screening device using conventional homoskedastic OLS standard errors. Confirm shortlisted specifications in the detailed laboratory with robust/clustered inference and theory-led controls.")
 
 
-elif page == "8. Original R&D regional panel":
-    module_guide("Reconstruct the documented EE1–EE9 region-year analytical panel without losing the original project-level data.", "Choose the allocation rule, inspect the recovered model presets and regional trend, then export the complete panel.", "The allocation rule changes timing and should be reported. Regional aggregation reduces the effective sample size and may amplify Attica's leverage.")
+elif page == "8. Project-to-region-year panel":
+    module_guide("Construct a region-year analytical panel from uploaded project-level data.", "Choose the allocation rule, inspect the regional trend, then export the complete panel.", "The allocation rule changes timing and should be reported. Regional aggregation reduces the effective sample size and may amplify Attica's leverage.")
     if not is_rd_dataset(df):
-        st.warning("The active dataset does not expose the required original R&D project/year/region columns. Select or upload the 83-variable Makryvelios workbook.")
+        st.warning("The active dataset does not expose the required original R&D project/year/region columns. Upload a table with compatible project, year and region columns, or use the general panel laboratory for another schema.")
     else:
         allocation = st.selectbox("Panel allocation", ["End-year", "Start-year", "Active years – even allocation"])
         try:
@@ -845,8 +861,6 @@ elif page == "8. Original R&D regional panel":
             st.session_state["rd_panel"] = panel
             c1, c2, c3 = st.columns(3)
             c1.metric("Panel rows", f"{len(panel):,}"); c2.metric("Regions", panel.region.nunique()); c3.metric("Years", f"{int(panel.year.min())}–{int(panel.year.max())}")
-            st.subheader("Recovered EE1–EE9 model specifications")
-            guided_dataframe("Recovered EE1–EE9 model specifications", original_model_presets(df, panel))
             metrics = [c for c in ["regional_absorption_index", "project_count", "collaborative_projects", "patents", "spin_offs", "smes_benefited", "participating_firms", "total_budget_allocated", "total_public_expenditure_allocated"] if c in panel]
             metric = st.selectbox("Panel metric", metrics)
             rule = "mean" if "index" in metric or "share" in metric else "sum"
@@ -854,7 +868,7 @@ elif page == "8. Original R&D regional panel":
             panel_trend_fig = px.line(trend, x="year", y=metric, markers=True, title=f"R&D region–year trend: {metric}")
             figure_with_downloads(panel_trend_fig, "rd_region_year_trend", trend, "The national trend aggregates regional panel cells according to the displayed rule; inspect regional heterogeneity before drawing national conclusions.")
             guided_dataframe("Region–year analytical panel", panel)
-            st.download_button("Download region–year panel", to_excel_bytes({"Region-year panel": panel, "Model presets": original_model_presets(df, panel)}), "rd_region_year_panel.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("Download region–year panel", to_excel_bytes({"Region-year panel": panel}), "rd_region_year_panel.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as exc:
             st.error(f"Panel construction failed: {exc}")
 
@@ -1657,7 +1671,7 @@ elif page == "12B. Research Command Chair":
         selected_prompt_labels = st.multiselect(
             "Questions to run",
             list(prompt_labels),
-            default=core_labels,
+            default=[],
             key="autopilot_prompt_selection",
             help="Choose a short core report, any individual questions, or all available questions. Every selected question remains editable before execution.",
         )
@@ -1669,7 +1683,7 @@ elif page == "12B. Research Command Chair":
         with preset3:
             load_all = st.button("Load all possible questions", key="auto_load_all")
         if "autopilot_question_editor" not in st.session_state:
-            st.session_state["autopilot_question_editor"] = "\n".join(prompt_labels[label] for label in core_labels)
+            st.session_state["autopilot_question_editor"] = ""
         if load_core:
             st.session_state["autopilot_question_editor"] = "\n".join(prompt_labels[label] for label in core_labels)
         if load_selected:
@@ -1683,7 +1697,7 @@ elif page == "12B. Research Command Chair":
             help="Change any wording, add a new question on a new line, or delete questions you do not want.",
         )
         questions_to_run = [line.strip() for line in edited_questions.splitlines() if line.strip()]
-        st.caption(f"{len(questions_to_run):,} question(s) will run. Prepared text is shown on a white background with black type.")
+        st.caption(f"{len(questions_to_run):,} question(s) will run. Prepared questions remain editable.")
 
         use_entire_dataset = st.checkbox(
             "Use every row and column in the active spreadsheet",
@@ -1962,7 +1976,7 @@ elif page == "13. Methods & reproducibility":
         "Tests": "Welch t, Mann–Whitney, one-way ANOVA, Kruskal–Wallis, Levene, chi-square/Cramér's V, Shapiro–Wilk, D'Agostino K² and Anderson–Darling.",
         "Econometrics": "OLS/WLS, Huber robust regression; HC0–HC3, HAC and clustered covariance; logit, probit, Poisson, negative-binomial, fractional logit, Gamma log-link and quantile regression; fixed effects; IV/2SLS; difference-in-differences; Ridge/Lasso/Elastic Net; VIF, BP/White, RESET, DW, JB and Cook's D.",
         "High-dimensional": "Vectorised 1,000-outcome × 1,000-predictor OLS screening; SVD/pseudoinverse; Benjamini–Hochberg and Bonferroni corrections.",
-        "Panel / R&D": "Start-year, end-year or active-year allocation; project and region–year EE1–EE9 specifications; pooled OLS, two-way fixed effects, random effects, entity-clustered covariance and Hausman specification testing.",
+        "Panel / R&D": "Start-year, end-year or active-year allocation; project and region–year specifications; pooled OLS, two-way fixed effects, random effects, entity-clustered covariance and Hausman specification testing.",
         "Spatial": "Official 1:1m GISCO NUTS-2/NUTS-3 boundaries; bilingual aliases; choropleths; KNN Moran's I; local Moran/LISA proxy; 999 permutations; colour and monochrome exports.",
         "Multivariate/time": "PCA, legacy k-means, Cronbach's alpha/item diagnostics, ADF/KPSS stationarity, Granger predictability and ARIMA forecasts.",
         "Advanced clustering": "One-dimensional or multivariate K-means, hierarchical agglomerative, Gaussian mixture and DBSCAN; standard/robust/min-max scaling; automatic k; silhouette, Calinski–Harabasz, Davies–Bouldin, profiles and PCA projection.",
@@ -1970,7 +1984,7 @@ elif page == "13. Methods & reproducibility":
         "Decision support": "Econometric shock approximation and constrained linear-programming allocation.",
         "Multi-criteria decision analysis": "MAVT, TOPSIS and PROMETHEE II rankings; equal, user-defined, Entropy, CRITIC and AHP pairwise weights; AHP consistency; one-at-a-time weight sensitivity; Monte Carlo rank acceptability and method-agreement diagnostics.",
         "Iterative Trichotomic Approach": "Eligibility gates; C1-C6 weighted scoring; ranking by call; exact binary portfolio optimisation under call envelopes and beneficiary caps; ITA-PB policy/equity rounds; published converging weights; Hybrid ITA-RW score-and-weight uncertainty; project inclusion probabilities; green/gray/red freezing; robustness index; deterministic scorecards; regional allocation; complete GAMS-ready export.",
-        "GAMS-compatible ITA Studio": "Visible GAMS-style sets, parameters, X(p), PORTFSCORE and equations; original SYN2 540 and R&D 2437 presets; regional/sector/intervention ceilings; hard GREEN/RED fixing; effective-budget rules; HiGHS execution; solver/equation/variable diagnostics; scenario-overlap outputs; Monte Carlo; API-key-free high-detail Greece maps with bundled NUTS-2/NUTS-3 boundaries and 600-dpi/vector export; original-source viewer; generated .gms/.prn/.lst-style packages; optional user-key LLM interpretation after computation.",
+        "GAMS-compatible ITA Studio": "Visible GAMS-style sets, parameters, X(p), PORTFSCORE and equations; user-defined single-vector and multiple decision-maker weights; regional/sector/intervention ceilings; hard GREEN/RED fixing; effective-budget rules; HiGHS execution; solver/equation/variable diagnostics; scenario-overlap outputs; Monte Carlo; API-key-free high-detail Greece maps with bundled NUTS-2/NUTS-3 boundaries and 600-dpi/vector export; user-uploaded source viewer; generated .gms/.prn/.lst-style packages; optional user-key LLM interpretation after computation.",
         "Expert respondent analytics": "Respondent-level data-quality checks; raw and normalised preference distributions; bootstrap mean intervals; Kendall concordance; Spearman dependence; PCA; automatically selected K-means preference segments; subgroup Kruskal-Wallis tests with Benjamini-Hochberg correction and epsilon-squared effects; empirical weight-scenario bridge to Hybrid ITA-RW.",
         "Monte Carlo": "Wild/residual/parametric OLS simulation with full coefficient draws, bias, Monte Carlo standard errors and percentile intervals; stochastic cost-benefit R&D portfolio selection with selection probabilities and downside distributions.",
         "Research Command Chair": "Free/offline one-screen question-batch autopilot plus retained advanced XLSX/PDF protocol builder; editable selected/all-question sets; feasibility verdicts; exact evidence scoping; safe equations; descriptive, correlation, OLS, Monte Carlo, normality, outlier, group-test, PCA, reliability, clustering, prediction, ARIMA and panel execution when required variable roles are mapped; genuine paper prose and complete analytical bundles.",
@@ -1979,9 +1993,7 @@ elif page == "13. Methods & reproducibility":
         "Outputs": "Exact tables, XLSX/CSV/Parquet, self-contained HTML/JavaScript report, 600-dpi PNG and vector SVG/PDF figures in colour and black-and-white, JSON manifests and near-submission DOCX bundles.",
     }
     guided_dataframe("Methods and capabilities", pd.DataFrame(methods.items(), columns=["family", "capabilities"]))
-    st.subheader("Source-to-method evidence catalogue")
-    guided_dataframe("Source-to-method evidence catalogue", EVIDENCE)
-    st.download_button("Download source-to-method catalogue", to_excel_bytes({"Evidence catalogue": EVIDENCE, "Methods": pd.DataFrame(methods.items(), columns=["family", "capabilities"])}), "methods_and_source_evidence.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button("Download methods catalogue", to_excel_bytes({"Methods": pd.DataFrame(methods.items(), columns=["family", "capabilities"])}), "methods_catalogue.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.subheader("Optional R replication")
     r_available = shutil.which("Rscript") is not None
     st.write("Rscript detected." if r_available else "Rscript is not installed on this machine. Python functionality is unaffected; deploy R only if independent replication is required.")
@@ -1989,7 +2001,7 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 6.0.0-rc1 documentation library")
+    st.subheader("Version 6.0.0-rc2 documentation library")
     st.markdown("v6 adds independent data intake, cleaning and audit, grouped navigation, loan forecasting, CFP discovery, Zotero and a local MCP adapter. The documentation below records historical capabilities.")
     st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.5 is strictly additive over v5.8.4. It adds bounded, user-visible AI context profiles, focus-variable routing, relevance-ranked PDF evidence, per-request RQ batching and conservative token estimates so free-tier hosted models are not sent the entire 83+ variable/PDF context. Provider/model selection remains manual and visible with no automatic fallback. Version 5.8.4 hardened structured full-draft synthesis; v5.8.3 hardened RQ parsing; v5.8.2 added Gemini/Groq/Ollama and AI synthesis; all earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capabilities remain available.")
     documentation_files = [

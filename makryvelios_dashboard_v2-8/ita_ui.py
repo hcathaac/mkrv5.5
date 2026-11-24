@@ -218,9 +218,9 @@ def render_ita_module(df: pd.DataFrame) -> None:
         criterion_suggestions = [c for c in numeric if c != budget_col][:min(6, max(2, len(numeric) - 1))]
     criteria = st.multiselect(
         "Evaluation criteria in C1, C2, ... order", numeric, default=criterion_suggestions[:6], max_selections=12,
-        key="ita_criteria", help="C1 must represent developmental need/equity. For Antonis Tritsis, map C1-C6 in the order specified in the methodological document.",
+        key="ita_criteria", help="C1 must represent developmental need/equity. Map criteria according to your research design.",
     )
-    default_weights = [.25, .20, .20, .15, .15, .05]
+    default_weights = [1.0 / max(1, len(criteria))] * len(criteria)
     config = pd.DataFrame({
         "criterion": [f"C{i + 1}" for i in range(len(criteria))],
         "source_column": criteria,
@@ -242,7 +242,7 @@ def render_ita_module(df: pd.DataFrame) -> None:
     with fields[2]:
         category_guess = _suggest(("beneficiary category", "category_m", "municipality class", "κατηγορ"), all_columns)
         category_options = [None] + all_columns
-        beneficiary_category_col = st.selectbox("Beneficiary category M1-M7", category_options, index=category_options.index(category_guess) if category_guess in category_options else 0, key="ita_beneficiary_category")
+        beneficiary_category_col = st.selectbox("Beneficiary category", category_options, index=category_options.index(category_guess) if category_guess in category_options else 0, key="ita_beneficiary_category")
     with fields[3]:
         actual_guess = _suggest(("actual selected", "approved", "funded", "status", "ενταγ", "εγκριθ"), all_columns)
         actual_options = [None] + all_columns
@@ -257,19 +257,20 @@ def render_ita_module(df: pd.DataFrame) -> None:
         observed_calls = sorted({normalise_call_code(value) for value in df[call_col].dropna().unique()})
     except Exception:
         observed_calls = []
-    envelope_table = pd.DataFrame({"call": observed_calls, "funding_envelope": [CALL_BUDGETS.get(code, 0.0) for code in observed_calls]})
+    envelope_table = pd.DataFrame({"call": observed_calls, "funding_envelope": [0.0 for code in observed_calls]})
     edited_envelopes = st.data_editor(
         envelope_table, width="stretch", hide_index=True, disabled=["call"],
         column_config={"funding_envelope": st.column_config.NumberColumn("Funding envelope (EUR)", min_value=0.0, format="€ %.0f")}, key="ita_envelopes",
     )
-    cap_table = pd.DataFrame({"category": list(BENEFICIARY_CATEGORY_CAPS), "maximum_funding": list(BENEFICIARY_CATEGORY_CAPS.values())})
-    with st.expander("Beneficiary cap schedule M1-M7", expanded=beneficiary_category_col is not None):
+    categories = sorted({str(v).strip().upper() for v in df[beneficiary_category_col].dropna().unique()}) if beneficiary_category_col else []
+    cap_table = pd.DataFrame({"category": categories, "maximum_funding": [0.0] * len(categories)})
+    with st.expander("User-defined beneficiary caps", expanded=beneficiary_category_col is not None):
         edited_caps = st.data_editor(
             cap_table, width="stretch", hide_index=True, disabled=["category"],
             column_config={"maximum_funding": st.column_config.NumberColumn("Maximum per beneficiary (EUR)", min_value=0.0, format="€ %.0f")}, key="ita_caps",
         )
         if beneficiary_category_col is None:
-            st.caption("The M1-M7 schedule is retained in the design but becomes active only after a category column is mapped.")
+            st.caption("Map a category column to enter your own caps. Zero means no category cap.")
 
     st.subheader("4. Iterative, uncertainty and policy design")
     settings_cols = st.columns(4)

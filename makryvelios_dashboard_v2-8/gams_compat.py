@@ -32,78 +32,6 @@ GAMS_STATUS_COLOURS = {
 }
 
 
-SYN2_REGION_CAPS = {
-    "EP2": 33_413_925.0,
-    "ATT": 48_047_006.0,
-    "CMK": 22_313_335.0,
-    "WMK": 647_220.0,
-    "STE": 3_480_311.0,
-}
-SYN2_SECTOR_CAPS = {
-    "1": 11_664_951.0,
-    "2": 11_664_951.0,
-    "3": 11_664_951.0,
-    "4": 8_748_713.0,
-    "5": 11_664_951.0,
-    "6": 8_748_713.0,
-    "7": 8_748_713.0,
-    "8": 11_644_951.0,
-    "9": 8_748_713.0,
-    "10": 14_581_189.0,
-}
-SYN2_WEIGHT_ROUNDS = {
-    "Round 1": np.array([
-        [1.000, 0.000, 0.000],
-        [0.000, 1.000, 0.000],
-        [0.000, 0.000, 1.000],
-    ]),
-    "Round 2": np.array([
-        [0.767, 0.100, 0.100],
-        [0.100, 0.767, 0.100],
-        [0.133, 0.133, 0.800],
-    ]),
-    "Round 3": np.array([
-        [0.533, 0.200, 0.200],
-        [0.200, 0.533, 0.200],
-        [0.267, 0.267, 0.600],
-    ]),
-    "Round 4": np.array([
-        [0.300, 0.300, 0.300],
-        [0.300, 0.300, 0.300],
-        [0.400, 0.400, 0.400],
-    ]),
-    "No ITA": np.array([
-        [0.300, 0.300, 0.300],
-        [0.300, 0.300, 0.300],
-        [0.400, 0.400, 0.400],
-    ]),
-}
-
-RND2437_REGIONS = ["ATT", "CMK", "EMK", "THE", "NAG", "EPI", "STE", "PEL", "CRE", "WGR", "WMK", "ION", "SAG"]
-RND2437_REGION_GROUPS = {
-    "lessdev": ["EMK", "CMK", "THE", "EPI", "WGR"],
-    "trans": ["WMK", "CRE", "ION", "PEL", "NAG"],
-}
-RND2437_GROUP_CAPS = {"lessdev": 221_400_000.0, "trans": 61_500_000.0}
-RND2437_REGION_CAPS = {"ATT": 106_600_000.0, "STE": 10_250_000.0, "SAG": 10_250_000.0}
-RND2437_SECTOR_CAPS = {
-    "1": 33_000_000.0, "2": 40_000_000.0, "3": 75_000_000.0, "4": 47_000_000.0,
-    "5": 76_000_000.0, "6": 18_000_000.0, "7": 34_000_000.0, "8": 87_000_000.0,
-}
-RND2437_INTERVENTION_CAPS = {"1": 66_000_000.0, "2": 320_000_000.0, "3": 24_000_000.0}
-RND2437_INTERVENTION_WEIGHTS = {
-    "1": [0.2, 0.3, 0.5],
-    "2": [0.4, 0.3, 0.3],
-    "3": [0.3, 0.2, 0.5],
-}
-RND2437_MC_PRESETS = {
-    "Round 1": {"iterations": 1000, "seed": 5780, "step": 1.0, "integer_low": -1, "integer_high": 1, "budget_factors": {}},
-    "Round 2": {"iterations": 1000, "seed": 5780, "step": 0.5, "integer_low": -2, "integer_high": 2, "budget_factors": {}},
-    "Round 3": {"iterations": 1000, "seed": 5780, "step": 0.5, "integer_low": -1, "integer_high": 1, "budget_factors": {"GREY": 0.925}},
-    "Final": {"iterations": 1, "seed": 5780, "step": 0.0, "integer_low": -1, "integer_high": 1, "budget_factors": {"NEWGREEN": 0.925, "GREY2": 0.85}},
-}
-
-
 @dataclass
 class GAMSCompatibleModel:
     projects: pd.DataFrame
@@ -139,42 +67,9 @@ class GAMSRunResult:
     solver_diagnostics: dict = field(default_factory=dict)
 
 
-def preset_definition(name: str) -> dict:
-    if name == "Vangelis – SYN2 540":
-        return {
-            "name": name,
-            "criteria": ["C1", "C2", "C3"],
-            "regions": list(SYN2_REGION_CAPS),
-            "region_caps": SYN2_REGION_CAPS.copy(),
-            "sector_caps": SYN2_SECTOR_CAPS.copy(),
-            "weight_rounds": {k: v.copy() for k, v in SYN2_WEIGHT_ROUNDS.items()},
-            "notes": [
-                "Source files use 540 projects, 5 regional budget columns, 10 sectors and 3 criteria.",
-                "Round 2 and Round 3 fix GREEN projects to 1 and RED projects to 0.",
-                "Round 4 and the supplied No ITA source have the same weight matrix and active constraints; the application keeps them distinct but does not invent a difference.",
-                "The first-round source uses CMK 22,312,335 while subsequent files use 22,313,335. The preset uses the later value and flags the source discrepancy.",
-            ],
-        }
-    if name == "Vangelis – R&D 2437":
-        return {
-            "name": name,
-            "criteria": ["C1", "C2", "C3"],
-            "regions": RND2437_REGIONS.copy(),
-            "region_caps": RND2437_REGION_CAPS.copy(),
-            "region_groups": {k: v.copy() for k, v in RND2437_REGION_GROUPS.items()},
-            "region_group_caps": RND2437_GROUP_CAPS.copy(),
-            "sector_caps": RND2437_SECTOR_CAPS.copy(),
-            "intervention_caps": RND2437_INTERVENTION_CAPS.copy(),
-            "intervention_weights": {k: list(v) for k, v in RND2437_INTERVENTION_WEIGHTS.items()},
-            "monte_carlo": {k: dict(v) for k, v in RND2437_MC_PRESETS.items()},
-            "notes": [
-                "Source files use 2,437 projects, 13 regions, 8 sectors, 3 interventions and 3 criteria.",
-                "The objective uses intervention-specific criterion weights exactly as in the supplied GAMS files.",
-                "Regional-group, sector and intervention budget constraints are retained as separate algebraic constraints.",
-                "The supplied sequence uses seed 5780 and round-specific discrete score perturbations, with later rounds fixing GREEN/RED and reducing effective budgets for ambiguous/newly-green projects.",
-            ],
-        }
-    return {"name": "Custom", "criteria": ["C1", "C2", "C3"], "regions": [], "region_caps": {}, "sector_caps": {}, "notes": []}
+def preset_definition(name: str = "Custom") -> dict:
+    """Compatibility entry point: no historical case configuration is shipped."""
+    return {"name": "Custom", "criteria": [], "regions": [], "region_caps": {}, "sector_caps": {}, "notes": []}
 
 
 def _clean_id(value: object) -> str:

@@ -14,7 +14,7 @@ def test_all_previous_modules_retained_and_new_modules_added():
         "6. OLS & econometric laboratory",
         "6A. Monte Carlo & uncertainty",
         "7. 1,000 × 1,000 batch engine",
-        "8. Original R&D regional panel",
+        "8. Project-to-region-year panel",
         "8A. Panel model laboratory",
         "9. Detailed Greece GIS",
         "10. Time series & multivariate",

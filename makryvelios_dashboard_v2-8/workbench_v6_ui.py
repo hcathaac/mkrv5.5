@@ -30,7 +30,21 @@ def invalidate_on_change(signature):
             st.session_state.pop(k,None)
     st.session_state['_v6_signature']=signature
 
-def overview(frames,pages):
+def overview(frames,pages,df):
+    if not frames:
+        st.info("No dataset loaded — start a new research session by uploading your own files. No previous research data or presets are loaded.")
+    cols=st.columns(3)
+    cols[0].metric("Uploaded sources",len(frames))
+    cols[1].metric("Active rows",len(df))
+    cols[2].metric("Active variables",df.shape[1])
+    st.subheader("Quick access")
+    shortcuts=[("Data cleaner",NEW_PAGES[0]),("Loan forecasting",NEW_PAGES[1]),("Conference finder",NEW_PAGES[2]),("Zotero",NEW_PAGES[3]),("Research Chair","12B. Research Command Chair"),("Research design","3. Research questions"),("Econometrics","6. OLS & econometric laboratory"),("Agentic research","12D. Agentic Research Mode"),("Greece GIS","9. Detailed Greece GIS"),("ITA / public funding","12A.1 ITA / public-funding decision support"),("GAMS Studio","12A.1B GAMS-compatible ITA Studio"),("Methods","13. Methods & reproducibility")]
+    def navigate(target):
+        st.session_state["_v6_family"]="All modules"
+        st.session_state["_v6_module"]=target
+    for i in range(0,len(shortcuts),4):
+        for col,(label,target) in zip(st.columns(4),shortcuts[i:i+4]):
+            col.button(label,key="rc2_shortcut_"+str(i)+label,on_click=navigate,args=(target,),use_container_width=True)
     st.subheader('Research workflow navigator')
     q=st.text_area('Describe your research question (Greek or English)',key='_v6_question')
     if q.strip():
@@ -103,11 +117,11 @@ def loans(df):
             if run:
                 st.write(run['caution']); st.dataframe(run['metrics']); st.dataframe(run['forecast']); st.line_chart(pd.concat([run['history'],run['forecast']],ignore_index=True).set_index('period')[['actual','forecast']]); st.download_button('Download forecast evidence',bundle({k:v for k,v in run.items() if isinstance(v,pd.DataFrame)},{'model':run['model'],'caution':run['caution'],'dataset_sha256':frame_hash(df)}),'loan_forecast.zip','application/zip'); st.download_button('Download publication figures (600 dpi, SVG, PDF; colour + grayscale)',_forecast_figures(run),'loan_figures.zip','application/zip')
     with sch:
-        p=st.number_input('Principal',min_value=1.0,value=100000.0); r=st.number_input('Annual nominal rate (%)',min_value=0.0,max_value=100.0,value=3.0); years=st.number_input('Maturity (years)',1,50,10); per=st.selectbox('Payments per year',[12,4,2,1]); grace=st.number_input('Interest-only grace periods',0,int(years*per)-1,0)
+        p=st.number_input('Principal',min_value=0.0,value=0.0); r=st.number_input('Annual nominal rate (%)',min_value=0.0,max_value=100.0,value=0.0); years=st.number_input('Maturity (years)',1,50,10); per=st.selectbox('Payments per year',[12,4,2,1]); grace=st.number_input('Interest-only grace periods',0,int(years*per)-1,0)
         settings=(p,r,years,per,grace)
         if st.session_state.get('_v6_schedule_settings') != settings:
             st.session_state.pop('_v6_schedule',None); st.session_state['_v6_schedule_settings']=settings
-        if st.button('Calculate illustrative schedule'): st.session_state['_v6_schedule']=loan_schedule(p,r/100,years,per,grace)
+        if st.button('Calculate schedule',disabled=p<=0): st.session_state['_v6_schedule']=loan_schedule(p,r/100,years,per,grace)
         s=st.session_state.get('_v6_schedule')
         if s is not None: st.dataframe(s); st.download_button('Download amortisation CSV',s.to_csv(index=False),'loan_schedule.csv','text/csv')
 

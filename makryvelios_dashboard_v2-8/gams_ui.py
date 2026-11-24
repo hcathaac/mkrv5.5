@@ -16,13 +16,10 @@ from openpyxl.styles import Font, PatternFill
 
 from gams_compat import (
     GAMS_STATUS_COLOURS,
-    RND2437_MC_PRESETS,
-    SYN2_WEIGHT_ROUNDS,
     gams_model_text,
     gams_reproducibility_bundle,
     monte_carlo_gams_compatible,
     prepare_gams_compatible_model,
-    preset_definition,
     solve_gams_compatible,
     solve_weight_matrix,
 )
@@ -38,16 +35,14 @@ from mapping import (
 
 
 BASE = Path(__file__).resolve().parent
-REFERENCE_GAMS = BASE / "reference_gams" / "vangelis"
-REFERENCE_GAMS_DATA = REFERENCE_GAMS / "data"
 
 STATUS_STYLE = {
-    "GREEN": ("#DCFCE7", "#14532D"),
-    "RED": ("#FEE2E2", "#7F1D1D"),
-    "GRAY": ("#F3F4F6", "#111827"),
-    "GREY": ("#F3F4F6", "#111827"),
-    "SELECTED": ("#DBEAFE", "#1E3A8A"),
-    "NOT SELECTED": ("#E2E8F0", "#0F172A"),
+    "GREEN": ("#14532D", "#FFFFFF"),
+    "RED": ("#7F1D1D", "#FFFFFF"),
+    "GRAY": ("#374151", "#FFFFFF"),
+    "GREY": ("#374151", "#FFFFFF"),
+    "SELECTED": ("#1E3A8A", "#FFFFFF"),
+    "NOT SELECTED": ("#334155", "#FFFFFF"),
 }
 
 
@@ -61,51 +56,6 @@ def _suggest(tokens: tuple[str, ...], columns: list[str], excluded: set[str] | N
 
 
 
-
-def _read_reference_id_set(path: Path) -> set[str]:
-    if not path.exists():
-        return set()
-    raw = path.read_text(encoding="utf-8", errors="ignore")
-    return {token.strip().rstrip(",") for token in re.split(r"[\s,;]+", raw) if token.strip().rstrip(",")}
-
-
-@st.cache_data(show_spinner=False)
-def _load_original_syn2_reference() -> pd.DataFrame:
-    """Reconstruct the supplied SYN2 540 GAMS input table by project ID."""
-    required = [
-        REFERENCE_GAMS_DATA / "budget_syn2.prn",
-        REFERENCE_GAMS_DATA / "score_syn2.prn",
-        REFERENCE_GAMS_DATA / "sector_syn2.prn",
-    ]
-    missing = [str(path.name) for path in required if not path.exists()]
-    if missing:
-        raise FileNotFoundError("Missing supplied SYN2 reference input(s): " + ", ".join(missing))
-
-    budget = pd.read_csv(required[0], sep=r"\s+", engine="python", index_col=0)
-    budget.index = budget.index.astype(str)
-    budget.index.name = "project_id"
-    budget.columns = [str(c).strip().upper() for c in budget.columns]
-
-    score = pd.read_csv(required[1], sep=r"\s+", engine="python", index_col=0)
-    score.index = score.index.astype(str)
-    score.index.name = "project_id"
-    score.columns = [f"C{i + 1}" for i in range(score.shape[1])]
-
-    sector = pd.read_csv(required[2], sep=r"\s+", engine="python", header=None, names=["project_id", "sector"], dtype={"project_id": str})
-    sector["project_id"] = sector["project_id"].astype(str)
-
-    frame = budget.join(score, how="inner").reset_index().merge(sector, on="project_id", how="left", validate="one_to_one")
-    frame["ita_status"] = "UNCLASSIFIED"
-    status_files = {
-        "GREEN": REFERENCE_GAMS_DATA / "green1_syn2.txt",
-        "RED": REFERENCE_GAMS_DATA / "red1_syn2.txt",
-        "GRAY": REFERENCE_GAMS_DATA / "gray1.txt",
-    }
-    for status, path in status_files.items():
-        ids = _read_reference_id_set(path)
-        if ids:
-            frame.loc[frame["project_id"].isin(ids), "ita_status"] = status
-    return frame
 
 def _read_id_file(upload) -> list[str]:
     if upload is None:
@@ -205,51 +155,25 @@ def _region_mapping_editor(df: pd.DataFrame, preset: dict, key: str) -> tuple[di
 
 
 def _weights_editor(preset_name: str, criteria: list[str]) -> tuple[str, pd.DataFrame | None, list[float] | None]:
-    if preset_name == "Vangelis – SYN2 540" and len(criteria) == 3:
-        round_name = st.selectbox("Original GAMS weighting round", list(SYN2_WEIGHT_ROUNDS), key="gams_syn2_round")
-        matrix = SYN2_WEIGHT_ROUNDS[round_name]
-        weight_frame = pd.DataFrame(matrix, index=criteria, columns=["DM1", "DM2", "DM3"])
-        editable = weight_frame.reset_index(names="criterion")
-        edited = st.data_editor(
-            editable,
-            width="stretch",
-            hide_index=True,
-            disabled=["criterion"],
-            column_config={c: st.column_config.NumberColumn(c, min_value=0.0, format="%.4f") for c in ["DM1", "DM2", "DM3"]},
-            key="gams_syn2_weights",
-        )
-        out = edited.set_index("criterion")[["DM1", "DM2", "DM3"]].astype(float)
-        st.caption("Columns are the individual-decision-maker optimisations used by the original GAMS loop(crit). The application normalises each column only at solve time if necessary.")
-        return round_name, out, None
-    default = [1 / len(criteria)] * len(criteria)
-    vector = pd.DataFrame({"criterion": criteria, "weight": default})
-    edited = st.data_editor(
-        vector,
-        width="stretch",
-        hide_index=True,
-        disabled=["criterion"],
-        column_config={"weight": st.column_config.NumberColumn("Weight", min_value=0.0, format="%.4f")},
-        key="gams_custom_weights",
-    )
+    mode = st.radio("Weighting design", ["Single criterion-weight vector", "Multiple decision-maker vectors"], key="gams_weight_mode")
+    if mode.startswith("Multiple"):
+        count = st.number_input("Decision makers / weighting scenarios", 2, 30, 3, key="gams_dm_count")
+        names = [f"DM{i+1}" for i in range(int(count))]
+        frame = pd.DataFrame({"criterion": criteria, **{n: [1/len(criteria)]*len(criteria) for n in names}})
+        edited = st.data_editor(frame, hide_index=True, disabled=["criterion"], column_config={c: st.column_config.NumberColumn(c,min_value=0.0) for c in names}, key="gams_custom_matrix")
+        return "User-defined weight matrix", edited.set_index("criterion")[names].astype(float), None
+    frame = pd.DataFrame({"criterion": criteria, "weight": [1/len(criteria)]*len(criteria)})
+    edited = st.data_editor(frame, width="stretch", hide_index=True, disabled=["criterion"], column_config={"weight": st.column_config.NumberColumn("Weight", min_value=0.0, format="%.4f")}, key="gams_custom_weights")
     return "Custom", None, edited.weight.astype(float).tolist()
 
 
-def _intervention_weight_editor(preset: dict, criteria: list[str]) -> dict[str, list[float]]:
-    values = preset.get("intervention_weights", {})
-    if not values or len(criteria) != 3:
+def _intervention_weight_editor(values, criteria):
+    if not st.checkbox("Use intervention-specific criterion weights", key="gams_use_intervention_weights"):
         return {}
-    frame = pd.DataFrame([
-        {"Intervention": key, **{criteria[i]: weights[i] for i in range(len(criteria))}}
-        for key, weights in values.items()
-    ])
-    edited = st.data_editor(
-        frame,
-        width="stretch",
-        hide_index=True,
-        disabled=["Intervention"],
-        column_config={c: st.column_config.NumberColumn(c, min_value=0.0, format="%.4f") for c in criteria},
-        key="gams_intervention_weights",
-    )
+    frame = pd.DataFrame([{"Intervention": str(v), **{c: 1/len(criteria) for c in criteria}} for v in values])
+    if frame.empty:
+        return {}
+    edited = st.data_editor(frame, hide_index=True, disabled=["Intervention"], column_config={c: st.column_config.NumberColumn(c,min_value=0.0) for c in criteria}, key="gams_intervention_weights")
     return {str(row.Intervention): [float(row[c]) for c in criteria] for _, row in edited.iterrows()}
 
 
@@ -259,7 +183,7 @@ def _styled_projects(frame: pd.DataFrame):
 
     def cell_style(value):
         key = str(value).upper()
-        bg, fg = STATUS_STYLE.get(key, ("#FFFFFF", "#111827"))
+        bg, fg = STATUS_STYLE.get(key, ("#17384D", "#FFFFFF"))
         return f"background-color:{bg};color:{fg};font-weight:700"
 
     styler = frame.style
@@ -531,33 +455,9 @@ def render_gams_studio(df: pd.DataFrame) -> None:
     )
     st.info("This is an additive module. The existing 12A.1 ITA-PB / Hybrid ITA-RW module and every earlier analytical workflow remain unchanged.")
 
-    preset_name = st.selectbox("Model template", ["Vangelis – SYN2 540", "Vangelis – R&D 2437", "Custom"], key="gams_preset")
-    preset = preset_definition(preset_name)
-
-    if preset_name == "Vangelis – SYN2 540":
-        syn2_mode = st.radio(
-            "SYN2 input source",
-            ["Current application dataset", "Original supplied GAMS inputs (recommended for exact replication)"],
-            horizontal=True,
-            key="gams_syn2_input_source",
-        )
-        if syn2_mode.startswith("Original supplied"):
-            try:
-                df = _load_original_syn2_reference()
-                st.success("Loaded the original supplied SYN2 GAMS inputs: 540 projects, EP2/ATT/CMK/WMK/STE budgets, C1-C3 scores, sectors and GREEN/RED/GRAY sets.")
-                unclassified = int((df["ita_status"] == "UNCLASSIFIED").sum())
-                if unclassified:
-                    st.caption(f"{unclassified} supplied project ID is not present in the GREEN/RED/GRAY text sets and remains UNCLASSIFIED; it is not silently reassigned.")
-            except Exception as exc:
-                st.error(f"Could not load the embedded supplied SYN2 inputs: {exc}")
-                return
-    elif preset_name == "Vangelis – R&D 2437":
-        st.info("The supplied 2,437-project package contains the GAMS model source but not its complete raw budget/score/sector input tables. Map the active dataset or upload those source tables when available.")
-
-    if preset.get("notes"):
-        with st.expander("What this preset preserves from the supplied GAMS files", expanded=True):
-            for note in preset["notes"]:
-                st.markdown(f"- {note}")
+    preset_name = "Custom"
+    preset = {}
+    st.caption("No projects, funding ceilings, scores or historical settings are preloaded. Map your uploaded data and enter the constraints for this study.")
 
     all_columns = list(df.columns)
     numeric = list(df.select_dtypes(include=np.number).columns)
@@ -603,7 +503,10 @@ def render_gams_studio(df: pd.DataFrame) -> None:
     with middle:
         intervention_caps = _dict_editor("Intervention ceilings · totbudgi(intv)", preset.get("intervention_caps", {}) if intervention_col else {}, "gams_intv_caps", "Intervention", "Cap")
     with right:
-        group_caps = _dict_editor("Region-group ceilings", preset.get("region_group_caps", {}), "gams_group_caps", "Region group", "Cap")
+        group_caps = _dict_editor("Region-group ceilings", {}, "gams_group_caps", "Region group", "Cap")
+    region_groups = {}
+    for idx, name in enumerate(group_caps):
+        region_groups[name] = st.multiselect(f"Regions in group {name}", list(region_mapping), key=f"gams_group_members_{idx}_{name}")
 
     st.markdown("### 2. GREEN / RED / GRAY and X.fx logic")
     status_guess = _suggest(("ita_status", "classification", "colour", "color", "green", "status"), all_columns)
@@ -612,11 +515,11 @@ def render_gams_studio(df: pd.DataFrame) -> None:
         status_options = [None] + all_columns
         status_col = st.selectbox("Classification/status column", status_options, index=status_options.index(status_guess) if status_guess in status_options else 0, key="gams_status_col")
     with s2:
-        fix_green = st.checkbox("X.fx(GREEN) = 1", value=preset_name != "Custom", key="gams_fix_green")
+        fix_green = st.checkbox("X.fx(GREEN) = 1", value=False, key="gams_fix_green")
     with s3:
-        fix_red = st.checkbox("X.fx(RED) = 0", value=preset_name != "Custom", key="gams_fix_red")
+        fix_red = st.checkbox("X.fx(RED) = 0", value=False, key="gams_fix_red")
     with s4:
-        mip_gap = st.number_input("MIP relative gap / optcr", min_value=0.0, max_value=0.1, value=0.0005 if preset_name == "Vangelis – R&D 2437" else 0.0, step=0.0005, format="%.4f", key="gams_mip_gap")
+        mip_gap = st.number_input("MIP relative gap / optcr", min_value=0.0, max_value=0.1, value=0.0, step=0.0005, format="%.4f", key="gams_mip_gap")
 
     u1, u2 = st.columns(2)
     with u1:
@@ -627,10 +530,8 @@ def render_gams_studio(df: pd.DataFrame) -> None:
     fixed_out = _read_id_file(red_file)
 
     default_factors = {}
-    if preset_name == "Vangelis – R&D 2437":
-        default_factors = {"GREY": 0.925, "NEWGREEN": 0.925, "GREY2": 0.85}
     factor_frame = pd.DataFrame({"Status set": list(default_factors), "Effective budget factor": list(default_factors.values())})
-    with st.expander("Budget-adjustment sets used in later GAMS rounds", expanded=preset_name == "Vangelis – R&D 2437"):
+    with st.expander("Budget-adjustment sets used in later GAMS rounds", expanded=False):
         st.caption("These reproduce rules such as loop(GREY, budget(GREY,rg)=0.925*budget(GREY,rg)). Leave a status absent if that rule is not active in the current round.")
         factor_edited = st.data_editor(
             factor_frame,
@@ -642,11 +543,11 @@ def render_gams_studio(df: pd.DataFrame) -> None:
         )
     budget_factors = {str(row["Status set"]).strip().upper(): float(row["Effective budget factor"]) for _, row in factor_edited.iterrows() if str(row.get("Status set", "")).strip() and pd.notna(row.get("Effective budget factor"))}
 
-    st.markdown("### 3. Original weighting logic")
+    st.markdown("### 3. User-defined weighting logic")
     round_name, weight_matrix, weight_vector = _weights_editor(preset_name, [f"C{i + 1}" for i in range(len(criteria))])
-    intervention_weights = _intervention_weight_editor(preset, [f"C{i + 1}" for i in range(len(criteria))]) if intervention_col else {}
+    intervention_weights = _intervention_weight_editor(sorted(df[intervention_col].dropna().astype(str).unique()), [f"C{i + 1}" for i in range(len(criteria))]) if intervention_col else {}
     if intervention_weights:
-        st.caption("For the 2,437-project preset, these intervention-specific vectors reproduce the original GAMS loop(p) objective coefficients.")
+        st.caption("These user-defined vectors determine intervention-specific objective weights.")
 
     metadata = {
         "preset": preset_name,
@@ -656,14 +557,12 @@ def render_gams_studio(df: pd.DataFrame) -> None:
         "mip_rel_gap": float(mip_gap),
         "canonical_logic": "Evangelos Makryvelios GAMS-compatible portfolio MIP",
     }
-    if preset_name == "Vangelis – SYN2 540":
-        metadata["source_model_note"] = "CMK differs by €1,000 between supplied first-round and later source files; configured cap is shown explicitly in the UI."
 
     st.markdown("### 4. Build and solve")
     expected_regions = list(preset.get("regions", []))
     duplicate_budget_columns = len(set(region_mapping.values())) != len(region_mapping)
     missing_regions = [region for region in expected_regions if region not in region_mapping]
-    mapping_ready = bool(region_mapping) and not duplicate_budget_columns and not missing_regions
+    mapping_ready = bool(region_mapping) and not duplicate_budget_columns and not missing_regions and all(region_groups.values())
     if duplicate_budget_columns:
         st.error("Resolve duplicate regional budget mappings above before solving.")
     if missing_regions:
@@ -690,7 +589,7 @@ def render_gams_studio(df: pd.DataFrame) -> None:
                 fixed_in=fixed_in,
                 fixed_out=fixed_out,
                 budget_factors=budget_factors,
-                region_groups=preset.get("region_groups", {}),
+                region_groups=region_groups,
                 region_group_caps=group_caps,
                 intervention_weights=intervention_weights,
                 metadata=metadata,
@@ -742,7 +641,7 @@ def render_gams_studio(df: pd.DataFrame) -> None:
     else:
         active_weights = st.session_state.get("gams_weight_vector")
 
-    tabs = st.tabs(["Overview", "Project matrix", "Maps & spatial", "Constraints & allocations", "GAMS diagnostics", "GAMS model", "Monte Carlo", "LLM co-pilot", "Original source GAMS"])
+    tabs = st.tabs(["Overview", "Project matrix", "Maps & spatial", "Constraints & allocations", "GAMS diagnostics", "GAMS model", "Monte Carlo", "LLM co-pilot", "Uploaded GAMS sources"])
     with tabs[0]:
         summary = st.session_state.get("gams_run_summary", pd.DataFrame())
         st.dataframe(summary, width="stretch", hide_index=True)
@@ -827,12 +726,8 @@ def render_gams_studio(df: pd.DataFrame) -> None:
 
 def _render_monte_carlo(model, run, active_weights, preset_name: str) -> None:
     st.markdown("#### Robustness / Monte Carlo")
-    if preset_name == "Vangelis – R&D 2437":
-        mc_name = st.selectbox("Original GAMS Monte Carlo preset", list(RND2437_MC_PRESETS), key="gams_mc_preset")
-        defaults = RND2437_MC_PRESETS[mc_name]
-    else:
-        mc_name = "Custom"
-        defaults = {"iterations": 1000, "seed": 5780, "step": 0.5, "integer_low": -2, "integer_high": 2}
+    mc_name = "Custom"
+    defaults = {"iterations": 1000, "seed": 42, "step": 0.5, "integer_low": -2, "integer_high": 2}
     a, b, c, d = st.columns(4)
     with a:
         iterations = st.number_input("Iterations", 1, 5000, int(defaults.get("iterations", 1000)), 1, key="gams_mc_iterations")
@@ -909,14 +804,10 @@ def _render_llm_copilot(run) -> None:
 
 
 def _source_gams_library() -> None:
-    st.markdown("#### Original supplied GAMS source library")
-    files = sorted(REFERENCE_GAMS.glob("*.gms")) if REFERENCE_GAMS.exists() else []
-    if not files:
-        st.info("No bundled reference GAMS sources are available in this package.")
-        return
-    names = [f.name for f in files]
-    selected = st.selectbox("Reference source", names, key="gams_source_reference")
-    path = REFERENCE_GAMS / selected
-    text = path.read_text(encoding="utf-8", errors="replace")
-    st.code(text, language="text", line_numbers=True)
-    st.download_button("Download original supplied .gms", text.encode("utf-8"), selected, "text/plain", key="gams_source_download")
+    st.markdown("#### Your GAMS source files")
+    files = st.file_uploader("Upload your own .gms files for inspection", type=["gms"], accept_multiple_files=True, key="rc2_gams_sources")
+    for idx, f in enumerate(files or []):
+        st.write(f.name)
+        st.code(f.getvalue().decode("utf-8",errors="replace"),language="text",line_numbers=True)
+        st.download_button("Download source",f.getvalue(),f.name,key=f"rc2_gms_{idx}")
+    st.caption("Source inspection only. The solver executes the configured mathematical model, not arbitrary uploaded code.")

@@ -35,7 +35,7 @@ from ita import (
 )
 from respondent import analyse_respondents, respondent_export_bundle
 from gams_compat import (
-    SYN2_WEIGHT_ROUNDS, gams_model_text as gams_compat_model_text,
+    gams_model_text as gams_compat_model_text,
     gams_reproducibility_bundle, monte_carlo_gams_compatible,
     prepare_gams_compatible_model, solve_gams_compatible, solve_weight_matrix,
 )
@@ -120,9 +120,7 @@ def test_gams_compatible_backend_preserves_binary_constraints_and_exports():
         assert {"model.gms", "budget.prn", "score.prn", "project_crosswalk.csv", "settings.json"}.issubset(archive.namelist())
 
 
-def test_syn2_original_weight_rounds_and_monte_carlo_are_reproducible():
-    assert set(SYN2_WEIGHT_ROUNDS) == {"Round 1", "Round 2", "Round 3", "Round 4", "No ITA"}
-    np.testing.assert_allclose(SYN2_WEIGHT_ROUNDS["Round 4"][:, 0], [.3, .3, .4])
+def test_user_defined_weight_matrix_and_monte_carlo_are_reproducible():
     raw = pd.DataFrame({
         "project": ["1", "2", "3", "4"], "c1": [5, 4, 3, 2], "c2": [4, 5, 3, 2], "c3": [3, 4, 5, 2],
         "EP2": [10, 10, 10, 10], "ATT": [1, 1, 1, 1], "sector": ["1", "1", "2", "2"],
@@ -132,7 +130,7 @@ def test_syn2_original_weight_rounds_and_monte_carlo_are_reproducible():
         region_budget_columns={"EP2": "EP2", "ATT": "ATT"}, region_caps={"EP2": 20, "ATT": 4},
         sector_column="sector", sector_caps={"1": 22, "2": 22},
     )
-    matrix = pd.DataFrame(SYN2_WEIGHT_ROUNDS["Round 1"], index=["C1", "C2", "C3"], columns=["DM1", "DM2", "DM3"])
+    matrix = pd.DataFrame(np.array([[.6,.2,.2],[.2,.6,.2],[.2,.2,.6]]), index=["C1", "C2", "C3"], columns=["DM1", "DM2", "DM3"])
     summary, runs = solve_weight_matrix(model, matrix)
     assert len(summary) == 3 and "__selection_matrix__" in runs
     first_projects, first_draws = monte_carlo_gams_compatible(model, weights=[.3, .3, .4], iterations=8, seed=5780, perturbation_step=.5)
