@@ -277,3 +277,8 @@
 
 ## 6.0.0-rc2 — blank research workspace
 No historic data, research catalogues or case-specific funding presets. User-defined ITA/GAMS inputs; neutral offline Greece map before upload; mapped analyses retained.
+
+## 6.1.0-rc1 — Scientific Research & Policy Intelligence
+- Adds validation centre, portable project manager, manuscript review, journal discovery, funding and debt-stress scenario simulator, publication export centre, and optional separately hosted authenticated MCP adapter.
+- Reorders navigation and introduces workflow quick access; keeps all previous statistical engines and geographic assets. No historical datasets or credentials bundled.
+- Candidate verification: 52 targeted tests passed; one PyArrow roundtrip skipped; full Streamlit and external service integration pending.

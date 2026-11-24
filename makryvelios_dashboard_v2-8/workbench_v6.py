@@ -35,6 +35,18 @@ METHODS = [
  ('Research & publication','13. Methods & reproducibility','Retain exact data hash, transformations, code version, settings and diagnostics.'),
 ]
 
+# Additive v6.1 routes; keep method catalogue available without Streamlit imports.
+METHODS.extend([
+ ('Data & research design','18. Scientific validation centre','Audit all sources and explicitly mapped OLS diagnostics; distinguish checks from untestable assumptions.'),
+ ('Data & research design','19. Research project manager','Save and restore portable data and archived evidence without keys.'),
+ ('Research & publication','20. Academic peer reviewer','Structural review and optional evidence-grounded simulated AI critique.'),
+ ('Research & publication','21. Journal intelligence centre','Topic-based journal search; verify current fees, submission rules and indexing.'),
+ ('Policy & optimisation','22. Public finance simulator','Simulate funding scenarios with explicit budget and absorption assumptions.'),
+ ('Research & publication','23. Publication export centre','Consolidate actual tables, reports and attached publication assets.'),
+ ('Research & publication','24. LLM connector setup','Configure isolated local or authenticated separately hosted MCP service.'),
+ ('Research & publication','25. Guided research pipeline','Approval-gated audit, cleaning, design, native analyses, claim verification, review and private publication package.')])
+
+
 def frame_hash(frame):
     schema=json.dumps([(str(c),str(d)) for c,d in zip(frame.columns,frame.dtypes)],ensure_ascii=False)
     return hashlib.sha256((schema+'\n'+frame.to_csv(index=False)).encode('utf-8')).hexdigest()
@@ -84,7 +96,7 @@ def audit_all(frames):
 
 def recommend(question):
     q=question.casefold(); matches=[]
-    rules=[(('loan','δάνει','δανει','repayment','disbursement'), '15.'),(('forecast','arima','πρόβλε','προβλε','time series'),'10.'),(('panel','fixed effect','διαχρον'),'8A.'),(('causal','difference-in','αιτι','instrumental'),'6.'),(('cluster','segmentation','ομαδοπ'),'10A.'),(('funding','ita','allocation','χρηματοδ','κατανομ'),'12A.1 '),(('mcda','ranking','κριτήρι','κριτηρι'),'12A.'),(('conference','cfp','συνέδ','συνεδ'),'16.'),(('zotero','bibliograph','βιβλιογρ'),'17.'),(('regression','ols','παλινδρ'),'6.'),(('predict','machine learning','προγνωσ'),'10B.'),(('hypothesis','test','υπόθε','υποθε'),'5.'),(('paper','manuscript','article','δημοσίευ','δημοσιευ'),'12B.')]
+    rules=[(("validat","diagnostic","εγκυρό","εγκυρο"),"18."),(("project archive","restore project","αποθήκευση"),"19."),(("peer review","reviewer","κριτής"),"20."),(("journal","περιοδικό","περιοδικο"),"21."),(("scenario","simulation","σενάριο","σεναριο"),"22."),(("export","εξαγωγ"),"23."),(("connector","mcp"),"24."),(('loan','δάνει','δανει','repayment','disbursement'), '15.'),(('forecast','arima','πρόβλε','προβλε','time series'),'10.'),(('panel','fixed effect','διαχρον'),'8A.'),(('causal','difference-in','αιτι','instrumental'),'6.'),(('cluster','segmentation','ομαδοπ'),'10A.'),(('funding','ita','allocation','χρηματοδ','κατανομ'),'12A.1 '),(('mcda','ranking','κριτήρι','κριτηρι'),'12A.'),(('conference','cfp','συνέδ','συνεδ'),'16.'),(('zotero','bibliograph','βιβλιογρ'),'17.'),(('regression','ols','παλινδρ'),'6.'),(('predict','machine learning','προγνωσ'),'10B.'),(('hypothesis','test','υπόθε','υποθε'),'5.'),(('paper','manuscript','article','δημοσίευ','δημοσιευ'),'12B.')]
     for words,prefix in rules:
         if any(w in q for w in words): matches.extend(x for x in METHODS if x[1].startswith(prefix))
     return list(dict.fromkeys(matches)) or [x for x in METHODS if x[1].startswith(('2.','3.','12B.'))]

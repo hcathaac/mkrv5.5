@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v6.0.0-rc2.
+"""Makryvelios Research Analytics & Econometrics Workbench v6.2.0-rc1.
 
 Run locally:  streamlit run app.py
 """
@@ -59,6 +59,9 @@ from research_chair import (
 )
 from llm_bridge import configured as llm_configured, llm_reply
 from workbench_v6 import frame_hash, METHODS
+from research_platform import project_read
+from research_pipeline_ui import PAGE as PIPELINE_PAGE, pipeline_ui
+from research_platform_ui import PAGES as PLATFORM_PAGES, validation_ui, projects_ui, peer_ui, journals_ui, simulation_ui, exports_ui, connector_ui
 from workbench_v6_ui import NEW_PAGES, clear_session, invalidate_on_change, overview, cleaner, loans, conferences, zotero
 
 
@@ -135,7 +138,7 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .stApp [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] *{color:#fff!important;-webkit-text-fill-color:#fff!important}
 
 </style>
-<div class="hero"><span class="status">POSTDOCTORAL ANALYTICAL ENGINE v6.0.0-rc2 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Analytics &amp; Econometrics Command Centre</h1><p>Dataset-independent research • public finance • project portfolios • causal and predictive econometrics • Monte Carlo • advanced clustering • MCDA • ITA public-funding optimisation • respondent-level expert analytics • panel models • Greece spatial intelligence • publication systems • causal/Bayesian/XAI/Pareto frontier methods • agentic research automation</p><span class="chip">One-screen Research Chair</span><span class="chip">ITA-PB + Hybrid ITA-RW</span><span class="chip">Empirical respondent weights</span><span class="chip">Visible GAMS-compatible Studio</span><span class="chip">GAMS-ready export</span><span class="chip">User-key LLM co-pilot</span><span class="chip">52 editable prompts</span><span class="chip">Batch genuine answers</span><span class="chip">Feasibility verdicts</span><span class="chip">Interactive HTML</span><span class="chip">600-dpi + vector output</span><span class="chip">Analytical-sheet detection</span><span class="chip">No-key basemap</span><span class="chip">Offline high-detail Greece maps</span><span class="chip">Readable uploaded filenames</span><span class="chip">Frontier Methods Lab</span><span class="chip">Agentic Research Mode</span><span class="chip">150-RQ batches</span><span class="chip">Offline submission bundles</span><span class="chip">Original menu retained</span></div>
+<div class="hero"><span class="status">RESEARCH WORKBENCH v6.2.0-rc1 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Intelligence</h1><p>Prepare data · Analyse · Validate · Publish. Your datasets, your research, your API keys.</p></div>
 """, unsafe_allow_html=True)
 
 
@@ -240,15 +243,70 @@ def figure_with_downloads(fig, stem: str, data: pd.DataFrame | None = None, expl
 
 
 with st.sidebar:
+    st.header("Research navigation")
+    st.caption("Choose a method family and open a tool.")
+    st.divider()
+    pages = [
+        "1. Executive overview", "2. Data hub & audit", "3. Research questions",
+        "4. Descriptive statistics", "5. Hypothesis tests", "6. OLS & econometric laboratory",
+        "6A. Monte Carlo & uncertainty",
+        "7. 1,000 × 1,000 batch engine", "8. Project-to-region-year panel",
+        "8A. Panel model laboratory",
+        "9. Detailed Greece GIS", "10. Time series & multivariate",
+        "10A. Advanced clustering & segmentation", "10B. Predictive model laboratory",
+        "11. Publication figures & HTML report", "12. Scenario & allocation engine",
+        "12A. Dedicated MCDA engine",
+        "12A.1 ITA / public-funding decision support",
+        "12A.1B GAMS-compatible ITA Studio",
+        "12A.2 Expert respondent analytics",
+        "12B. Research Command Chair",
+        "12C. Frontier methods laboratory",
+        "12D. Agentic Research Mode",
+        "13. Methods & reproducibility",
+    ]
+    pages.extend(NEW_PAGES + PLATFORM_PAGES + [PIPELINE_PAGE])
+    groups = ["All modules"] + list(dict.fromkeys(row[0] for row in METHODS))
+    family = st.selectbox("Method family", groups, key="_v6_family")
+    visible_pages = pages if family == "All modules" else [pages[0]] + [row[1] for row in METHODS if row[0] == family and row[1] in pages]
+    if st.session_state.get("_v6_module") not in visible_pages:
+        st.session_state["_v6_module"] = visible_pages[0]
+    page = st.selectbox("Module", visible_pages, key="_v6_module")
+    st.divider()
     st.header("Data intake console")
     st.markdown('<div style="padding:.55rem .7rem;margin:0 0 .5rem;border:1px solid #1d7282;border-radius:9px;background:#12374b;color:#8cf4ff;font-size:.78rem;font-weight:800;letter-spacing:.06em">⬆ SECURE MULTI-FILE UPLOAD</div>', unsafe_allow_html=True)
     if st.button("Clear analysis results / parsing cache", key="_v6_clear"):
         parse_payloads.clear(); parse_pdf_payloads.clear(); clear_session()
-    if st.button("Reset entire session (uploads and keys)", key="_v6_reset"):
+    pipeline_open = st.session_state.get("_v6_pipeline_temp") is not None
+    reset_confirmed = st.checkbox("I have saved my private pipeline checkpoint; reset will delete the temporary run", key="_v6_pipeline_reset_confirm") if pipeline_open else True
+    if st.button("Reset entire session (uploads and keys)", key="_v6_reset", disabled=not reset_confirmed):
         parse_payloads.clear(); parse_pdf_payloads.clear(); clear_session(hard=True)
     uploaded = st.file_uploader("Upload one or many XLSX/XLS/CSV/TSV/Parquet/Arrow files", type=["xlsx", "xlsm", "xls", "csv", "tsv", "parquet", "pq", "feather", "arrow"], accept_multiple_files=True, key=f"_v6_upload_{st.session_state.get('_v6_epoch',0)}")
     all_sheets = st.checkbox("Read every Excel sheet", value=True, key="_v6_intake_sheets")
     normalise = st.checkbox("Normalise variable names", value=True, help="Recommended for modelling; original values are not altered.", key="_v6_intake_normalise")
+    def restore_project_callback():
+        project_file=st.session_state.get(f"_v6_upload_project_{st.session_state.get('_v6_epoch',0)}")
+        if not project_file: return
+        try:
+            manifest,content=project_read(project_file.getvalue())
+            epoch=st.session_state.get('_v6_epoch',0)+1
+            for key in list(st.session_state):
+                if not key.startswith('global_llm_') and key!='llm_config': del st.session_state[key]
+            st.session_state['_v6_epoch']=epoch
+            st.session_state['_v61_project_frames']=content['datasets']
+            st.session_state['_v61_restored']=(manifest,content)
+            st.session_state['_v61_research_question']=str(manifest.get('question',''))
+            st.session_state['_v6_module']='19. Research project manager'
+            st.session_state['_v6_family']='All modules'
+            saved=manifest.get('settings',{}).get('active_source')
+            if saved in content['datasets']: st.session_state['_v6_intake_active']=saved
+        except Exception as exc: st.session_state['_v61_restore_error']=str(exc)
+    with st.expander("Open saved research project", expanded=False):
+        project_file = st.file_uploader("Research project ZIP", type=["zip"], key=f"_v6_upload_project_{st.session_state.get('_v6_epoch',0)}")
+        st.button("Restore project", disabled=not project_file, key="v61_restore", on_click=restore_project_callback)
+        if st.session_state.get('_v61_restore_error'): st.error(st.session_state.pop('_v61_restore_error'))
+    restored_frames=st.session_state.get('_v61_project_frames',{})
+    if restored_frames and uploaded:
+        st.info("New uploads take precedence over restored project data. Remove uploads to return to the restored project.")
     if uploaded:
         payloads = tuple((f.name, f.getvalue()) for f in uploaded)
         try:
@@ -257,7 +315,7 @@ with st.sidebar:
             st.error(f"Upload could not be read: {exc}")
             frames = {}
     else:
-        frames = {}
+        frames = restored_frames.copy() if restored_frames else {}
     raw_frames = frames.copy()
     cleaned_sources = st.session_state.get('_v6_cleaned', {})
     frames = {label: cleaned_sources[label][1] if label in cleaned_sources and cleaned_sources[label][0] == frame_hash(frame) else frame for label, frame in raw_frames.items()}
@@ -321,107 +379,82 @@ with st.sidebar:
         df = pd.DataFrame()
 
     invalidate_on_change((selected_label, frame_hash(df), tuple((label, frame_hash(frame)) for label, frame in frames.items())))
-    st.markdown('<div class="llm-panel"><b>AI / LLM RESEARCH ENGINE</b><br><small>Optional. Numerical analysis and optimisation remain deterministic. Choose hosted AI, a free-plan route, or local Ollama.</small></div>', unsafe_allow_html=True)
-    llm_provider = st.selectbox(
-        "AI provider",
-        [
-            "Anthropic Claude",
-            "Google Gemini — free tier available",
-            "Groq — free plan available",
-            "Ollama Local — no API key",
-            "OpenAI-compatible",
-        ],
-        key="global_llm_provider",
-    )
-    provider_defaults = {
-        "Anthropic Claude": ("claude-sonnet-5", ""),
-        "Google Gemini — free tier available": ("gemini-3.7-flash", ""),
-        "Groq — free plan available": ("openai/gpt-oss-120b", "https://api.groq.com/openai/v1"),
-        "Ollama Local — no API key": ("llama3.1:8b", "http://127.0.0.1:11434"),
-        "OpenAI-compatible": ("", "https://api.openai.com/v1"),
-    }
-    default_llm_model, default_base_url = provider_defaults[llm_provider]
-    needs_key = not llm_provider.startswith("Ollama")
-    llm_api_key = st.text_input(
-        "API Key" if needs_key else "API Key",
-        type="password",
-        disabled=not needs_key,
-        placeholder="Not required for local Ollama" if not needs_key else "Paste the provider key",
-        key=f"global_llm_api_key_{llm_provider}",
-        help="Session-only. It is never written to exports. Ollama Local does not require a key.",
-    )
-    llm_model = st.text_input("Model ID", value=default_llm_model, key=f"global_llm_model_{llm_provider}")
-    llm_base_url = default_base_url
-    if llm_provider in {"OpenAI-compatible", "Ollama Local — no API key", "Groq — free plan available"}:
-        label = "Ollama endpoint" if llm_provider.startswith("Ollama") else "API base URL"
-        llm_base_url = st.text_input(label, value=default_base_url, key=f"global_llm_base_url_{llm_provider}")
-    if llm_provider.startswith("Google Gemini"):
-        st.warning("Gemini's free tier may use submitted content to improve Google products. Do not send confidential/restricted research material unless that is acceptable for the project.")
-    elif llm_provider.startswith("Groq"):
-        st.caption("Groq provides a free plan with rate limits. It is useful for fast synthesis and conversational passes; numerical evidence remains computed locally.")
-    elif llm_provider.startswith("Ollama"):
-        st.caption("Local Ollama is the privacy-first no-key option. On Streamlit Community Cloud, 127.0.0.1 refers to the cloud server, not your laptop; use a reachable/self-hosted Ollama endpoint or run the app locally.")
-    llm_max_tokens = st.number_input("AI maximum output tokens", min_value=256, max_value=12000, value=4000, step=256, key="global_llm_max_tokens")
-    llm_reasoning_effort = "low"
-    if llm_provider.startswith("Groq") and llm_model.strip().lower().startswith("openai/gpt-oss-"):
-        llm_reasoning_effort = st.selectbox(
-            "Groq GPT-OSS reasoning effort",
-            ["low", "medium", "high"],
-            index=0,
-            key="global_groq_reasoning_effort",
-            help="For structured RQ/paper synthesis, Low is recommended so the completion budget is spent on the final JSON instead of hidden reasoning. This never changes provider or model.",
+    with st.expander("Optional AI settings · your own API key", expanded=False):
+        st.markdown('<div class="llm-panel"><b>AI / LLM RESEARCH ENGINE</b><br><small>Optional. Numerical analysis and optimisation remain deterministic. Choose hosted AI, a free-plan route, or local Ollama.</small></div>', unsafe_allow_html=True)
+        llm_provider = st.selectbox(
+            "AI provider",
+            [
+                "Anthropic Claude",
+                "Google Gemini — free tier available",
+                "Groq — free plan available",
+                "Ollama Local — no API key",
+                "OpenAI-compatible",
+            ],
+            key="global_llm_provider",
         )
-        st.caption("GPT-OSS reasoning is separate from final answer text. Low is recommended for JSON extraction/synthesis; use Medium/High manually for harder open-ended reasoning when token limits allow.")
-    st.session_state["llm_config"] = {
-        "provider": llm_provider, "api_key": llm_api_key if needs_key else "", "model": llm_model.strip(),
-        "base_url": llm_base_url.strip(), "max_tokens": int(llm_max_tokens),
-        "reasoning_effort": llm_reasoning_effort,
-    }
-    if llm_configured(st.session_state["llm_config"]):
-        st.success("AI engine configured for this session. Agentic Mode can now use it for evidence-grounded synthesis, conversation, RQ generation and paper refinement.")
-        if st.button("TEST AI CONNECTION", key=f"global_llm_test_{llm_provider}"):
-            try:
-                probe = llm_reply(
-                    "Return exactly CONNECTION_OK and no other text.",
-                    st.session_state["llm_config"],
-                    system="This is a connectivity test. Return exactly CONNECTION_OK.",
-                    timeout=30,
-                )
-                if "CONNECTION_OK" in str(probe):
-                    st.success(f"Connection successful: {llm_provider} · {llm_model.strip()}")
-                else:
-                    st.warning("The provider responded, but not with the expected connectivity token. The API route is reachable; inspect the model response/settings if generation behaves unexpectedly.")
-            except Exception as exc:
-                st.error(f"AI connection test failed: {exc}")
-    else:
-        st.caption("The whole application still works without AI. Configure a hosted key or a reachable Ollama model only when you want AI-level synthesis.")
+        provider_defaults = {
+            "Anthropic Claude": ("claude-sonnet-5", ""),
+            "Google Gemini — free tier available": ("gemini-3.7-flash", ""),
+            "Groq — free plan available": ("openai/gpt-oss-120b", "https://api.groq.com/openai/v1"),
+            "Ollama Local — no API key": ("llama3.1:8b", "http://127.0.0.1:11434"),
+            "OpenAI-compatible": ("", "https://api.openai.com/v1"),
+        }
+        default_llm_model, default_base_url = provider_defaults[llm_provider]
+        needs_key = not llm_provider.startswith("Ollama")
+        llm_api_key = st.text_input(
+            "API Key" if needs_key else "API Key",
+            type="password",
+            disabled=not needs_key,
+            placeholder="Not required for local Ollama" if not needs_key else "Paste the provider key",
+            key=f"global_llm_api_key_{llm_provider}",
+            help="Session-only. It is never written to exports. Ollama Local does not require a key.",
+        )
+        llm_model = st.text_input("Model ID", value=default_llm_model, key=f"global_llm_model_{llm_provider}")
+        llm_base_url = default_base_url
+        if llm_provider in {"OpenAI-compatible", "Ollama Local — no API key", "Groq — free plan available"}:
+            label = "Ollama endpoint" if llm_provider.startswith("Ollama") else "API base URL"
+            llm_base_url = st.text_input(label, value=default_base_url, key=f"global_llm_base_url_{llm_provider}")
+        if llm_provider.startswith("Google Gemini"):
+            st.warning("Gemini's free tier may use submitted content to improve Google products. Do not send confidential/restricted research material unless that is acceptable for the project.")
+        elif llm_provider.startswith("Groq"):
+            st.caption("Groq provides a free plan with rate limits. It is useful for fast synthesis and conversational passes; numerical evidence remains computed locally.")
+        elif llm_provider.startswith("Ollama"):
+            st.caption("Local Ollama is the privacy-first no-key option. On Streamlit Community Cloud, 127.0.0.1 refers to the cloud server, not your laptop; use a reachable/self-hosted Ollama endpoint or run the app locally.")
+        llm_max_tokens = st.number_input("AI maximum output tokens", min_value=256, max_value=12000, value=4000, step=256, key="global_llm_max_tokens")
+        llm_reasoning_effort = "low"
+        if llm_provider.startswith("Groq") and llm_model.strip().lower().startswith("openai/gpt-oss-"):
+            llm_reasoning_effort = st.selectbox(
+                "Groq GPT-OSS reasoning effort",
+                ["low", "medium", "high"],
+                index=0,
+                key="global_groq_reasoning_effort",
+                help="For structured RQ/paper synthesis, Low is recommended so the completion budget is spent on the final JSON instead of hidden reasoning. This never changes provider or model.",
+            )
+            st.caption("GPT-OSS reasoning is separate from final answer text. Low is recommended for JSON extraction/synthesis; use Medium/High manually for harder open-ended reasoning when token limits allow.")
+        st.session_state["llm_config"] = {
+            "provider": llm_provider, "api_key": llm_api_key if needs_key else "", "model": llm_model.strip(),
+            "base_url": llm_base_url.strip(), "max_tokens": int(llm_max_tokens),
+            "reasoning_effort": llm_reasoning_effort,
+        }
+        if llm_configured(st.session_state["llm_config"]):
+            st.success("AI engine configured for this session. Agentic Mode can now use it for evidence-grounded synthesis, conversation, RQ generation and paper refinement.")
+            if st.button("TEST AI CONNECTION", key=f"global_llm_test_{llm_provider}"):
+                try:
+                    probe = llm_reply(
+                        "Return exactly CONNECTION_OK and no other text.",
+                        st.session_state["llm_config"],
+                        system="This is a connectivity test. Return exactly CONNECTION_OK.",
+                        timeout=30,
+                    )
+                    if "CONNECTION_OK" in str(probe):
+                        st.success(f"Connection successful: {llm_provider} · {llm_model.strip()}")
+                    else:
+                        st.warning("The provider responded, but not with the expected connectivity token. The API route is reachable; inspect the model response/settings if generation behaves unexpectedly.")
+                except Exception as exc:
+                    st.error(f"AI connection test failed: {exc}")
+        else:
+            st.caption("The whole application still works without AI. Configure a hosted key or a reachable Ollama model only when you want AI-level synthesis.")
 
-    st.divider()
-    pages = [
-        "1. Executive overview", "2. Data hub & audit", "3. Research questions",
-        "4. Descriptive statistics", "5. Hypothesis tests", "6. OLS & econometric laboratory",
-        "6A. Monte Carlo & uncertainty",
-        "7. 1,000 × 1,000 batch engine", "8. Project-to-region-year panel",
-        "8A. Panel model laboratory",
-        "9. Detailed Greece GIS", "10. Time series & multivariate",
-        "10A. Advanced clustering & segmentation", "10B. Predictive model laboratory",
-        "11. Publication figures & HTML report", "12. Scenario & allocation engine",
-        "12A. Dedicated MCDA engine",
-        "12A.1 ITA / public-funding decision support",
-        "12A.1B GAMS-compatible ITA Studio",
-        "12A.2 Expert respondent analytics",
-        "12B. Research Command Chair",
-        "12C. Frontier methods laboratory",
-        "12D. Agentic Research Mode",
-        "13. Methods & reproducibility",
-    ]
-    pages.extend(NEW_PAGES)
-    groups = ["All modules"] + list(dict.fromkeys(row[0] for row in METHODS))
-    family = st.selectbox("Method family", groups, key="_v6_family")
-    visible_pages = pages if family == "All modules" else [pages[0]] + [row[1] for row in METHODS if row[0] == family and row[1] in pages]
-    if st.session_state.get("_v6_module") not in visible_pages:
-        st.session_state["_v6_module"] = visible_pages[0]
-    page = st.radio("Module", visible_pages, key="_v6_module")
     with st.expander("Quick operating guide", expanded=False):
         st.markdown("1. Upload or select data.\n2. Audit variables.\n3. Choose a research question.\n4. Run the matching method.\n5. Read assumptions and diagnostics.\n6. Download tables, figures and the reproducibility record.")
         st.caption("Interactive figures also expose Plotly's camera icon in the top-right toolbar. Use the explicit publication bundle for 600-dpi and vector output.")
@@ -431,6 +464,7 @@ with st.sidebar:
 
 if page == "1. Executive overview":
     overview(frames, pages, df)
+    if df.empty: st.stop()
 
 if df.empty and page == "9. Detailed Greece GIS":
     st.subheader("Greece — geographic boundaries only")
@@ -441,7 +475,7 @@ if df.empty and page == "9. Detailed Greece GIS":
     st.plotly_chart(detailed_offline_map_figure(empty_map, "value", nuts2_geojson=n2, nuts3_geojson=n3, title="Greece · NUTS-2 / NUTS-3 · no mapped values"), width="stretch")
     st.stop()
 
-if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode", "13. Methods & reproducibility", "3. Research questions", *NEW_PAGES}:
+if df.empty and page not in {"12B. Research Command Chair", "12D. Agentic Research Mode", "13. Methods & reproducibility", "3. Research questions", *NEW_PAGES, *PLATFORM_PAGES, PIPELINE_PAGE}:
     st.info("Upload one or more Excel/CSV files in the sidebar. The app accepts multiple files and multiple workbook sheets simultaneously.")
     st.stop()
 
@@ -1967,6 +2001,22 @@ elif page == "16. Conference & CFP discovery":
     conferences()
 elif page == "17. Zotero bibliography":
     zotero()
+elif page == PLATFORM_PAGES[0]:
+    validation_ui(frames,df)
+elif page == PLATFORM_PAGES[1]:
+    projects_ui(frames,selected_label,page)
+elif page == PLATFORM_PAGES[2]:
+    peer_ui()
+elif page == PLATFORM_PAGES[3]:
+    journals_ui()
+elif page == PLATFORM_PAGES[4]:
+    simulation_ui(df)
+elif page == PLATFORM_PAGES[5]:
+    exports_ui(frames)
+elif page == PLATFORM_PAGES[6]:
+    connector_ui()
+elif page == PIPELINE_PAGE:
+    pipeline_ui()
 elif page == "13. Methods & reproducibility":
     module_guide("Document the analytical coverage, implementation choices and reproducibility route.", "Use the catalogue to identify an estimator, then retain the exported data, model configuration, seed and software version with the manuscript.", "Reproducibility requires the exact data version and transformations, not only the estimator name.")
     st.subheader("Implemented analytical families")
@@ -2001,10 +2051,12 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 6.0.0-rc2 documentation library")
+    st.subheader("Version 6.2.0-rc1 documentation library")
     st.markdown("v6 adds independent data intake, cleaning and audit, grouped navigation, loan forecasting, CFP discovery, Zotero and a local MCP adapter. The documentation below records historical capabilities.")
     st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.5 is strictly additive over v5.8.4. It adds bounded, user-visible AI context profiles, focus-variable routing, relevance-ranked PDF evidence, per-request RQ batching and conservative token estimates so free-tier hosted models are not sent the entire 83+ variable/PDF context. Provider/model selection remains manual and visible with no automatic fallback. Version 5.8.4 hardened structured full-draft synthesis; v5.8.3 hardened RQ parsing; v5.8.2 added Gemini/Groq/Ollama and AI synthesis; all earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capabilities remain available.")
     documentation_files = [
+        ("Guided research pipeline v6.2", "WORKBENCH_V62_PIPELINE.md", "text/markdown"),
+        ("v6.1 upgrade and deployment guide", "WORKBENCH_V61.md", "text/markdown"),
         ("v6 upgrade and deployment guide", "WORKBENCH_V6.md", "text/markdown"),
         ("Complete technical documentation — Word", "Makryvelios_Technical_Documentation_v5_2_1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ("Complete technical documentation — PDF", "Makryvelios_Technical_Documentation_v5_2_1.pdf", "application/pdf"),

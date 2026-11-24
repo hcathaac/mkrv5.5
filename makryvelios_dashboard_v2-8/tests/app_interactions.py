@@ -18,7 +18,7 @@ fixture = """    else:
         duration = rng.integers(1, 6, n)
         frames = {"Synthetic QA fixture": pd.DataFrame({"Region": np.repeat([f"R{i}" for i in range(8)], 30), "Project_start_year": years, "Project_Duration_year": duration, "Final_Project_s_Budjet_at_the_end_of_the_project": budget, "absorption_rate_budget": .2 + budget / 150000 + rng.normal(0,.05,n), "score": rng.normal(size=n)})}
     raw_frames = frames.copy()"""
-anchor = "    else:\n        frames = {}\n    raw_frames = frames.copy()"
+anchor = "    else:\n        frames = restored_frames.copy() if restored_frames else {}\n    raw_frames = frames.copy()"
 assert source.count(anchor) == 1
 # Put the temporary script beside app.py so __file__-relative assets resolve.
 with tempfile.NamedTemporaryFile(mode="w", suffix=".py", dir=APP.parent, delete=False, encoding="utf-8") as tmp:
@@ -30,7 +30,7 @@ at.run()
 assert not at.exception, at.exception
 
 # Exercise a real OLS estimation using an explicit synthetic test fixture.
-module = next(w for w in at.radio if w.label == "Module")
+module = next(w for w in at.selectbox if w.label == "Module")
 module.set_value("6. OLS & econometric laboratory")
 at.run()
 assert not at.exception, at.exception
@@ -41,7 +41,7 @@ assert not at.exception, at.exception
 assert any("Coefficient table" in h.value for h in at.subheader)
 
 # Exercise the new Monte Carlo OLS path with a bounded replication count.
-module = next(w for w in at.radio if w.label == "Module")
+module = next(w for w in at.selectbox if w.label == "Module")
 module.set_value("6A. Monte Carlo & uncertainty")
 at.run()
 replications = next(w for w in at.slider if w.label == "Replications")
@@ -55,7 +55,7 @@ assert not at.exception, at.exception
 assert any("Coefficient uncertainty summary" in h.value for h in at.subheader)
 
 # Exercise one-dimensional absorption clustering with automatic k selection.
-module = next(w for w in at.radio if w.label == "Module")
+module = next(w for w in at.selectbox if w.label == "Module")
 module.set_value("10A. Advanced clustering & segmentation")
 at.run()
 assert not at.exception, at.exception
@@ -66,7 +66,7 @@ assert not at.exception, at.exception
 assert any("Substantive cluster profiles" in h.value for h in at.subheader)
 
 # Exercise cross-validated predictive modelling on a bounded predictor set.
-module = next(w for w in at.radio if w.label == "Module")
+module = next(w for w in at.selectbox if w.label == "Module")
 module.set_value("10B. Predictive model laboratory")
 at.run()
 outcome = next(w for w in at.selectbox if w.label == "Continuous outcome")
@@ -87,7 +87,7 @@ assert not at.exception, at.exception
 assert any("Cross-validated model performance" in h.value for h in at.subheader)
 
 # Exercise the panel model UI with region-year aggregation.
-module = next(w for w in at.radio if w.label == "Module")
+module = next(w for w in at.selectbox if w.label == "Module")
 module.set_value("8A. Panel model laboratory")
 at.run()
 entity = next(w for w in at.selectbox if w.label == "Entity identifier")
@@ -110,7 +110,7 @@ assert not at.exception, at.exception
 assert any("Panel model fit" in h.value for h in at.subheader)
 
 # Exercise the dedicated MCDA module, including Monte Carlo rank acceptability.
-module = next(w for w in at.radio if w.label == "Module")
+module = next(w for w in at.selectbox if w.label == "Module")
 module.set_value("12A. Dedicated MCDA engine")
 at.run()
 assert not at.exception, at.exception

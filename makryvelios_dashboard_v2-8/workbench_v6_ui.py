@@ -11,11 +11,13 @@ def clear_session(hard=False):
     # Streamlit caches are process-wide: clear only the two user-data functions in app.py.
     # Never clear unrelated global resources in a multi-user app.
     if hard:
+        holder=st.session_state.get('_v6_pipeline_temp')
+        if holder is not None: holder.cleanup()
         epoch=st.session_state.get('_v6_epoch',0)+1
         st.session_state.clear(); st.session_state['_v6_epoch']=epoch
     else:
         for k in list(st.session_state):
-            if not (k.startswith('global_llm_') or k in ('_v6_epoch','_v6_signature','_v6_upload_signature','_v6_module','_v6_upload','_v6_cleaned') or k.startswith(('_v6_upload_', '_v6_intake_'))):
+            if not (k.startswith(('_v6_pipeline_','global_llm_')) or k in ('_v6_epoch','_v6_signature','_v6_upload_signature','_v6_module','_v6_upload','_v6_cleaned','_v61_project_frames','_v61_restored','_v61_research_question') or k.startswith(('_v6_upload_', '_v6_intake_'))):
                 del st.session_state[k]
     st.rerun()
 
@@ -24,9 +26,9 @@ def invalidate_on_change(signature):
     if previous is not None and previous!=signature:
         # Called before analysis-page widgets are created. Keep global provider settings and intake widgets.
         for k in list(st.session_state):
-            if k.startswith(('global_llm_','_v6_')) or k=='llm_config': continue
+            if k.startswith(('global_llm_','_v6_')) or k in ('llm_config','_v61_project_frames','_v61_restored','_v61_research_question'): continue
             del st.session_state[k]
-        for k in ('_v6_forecast','_v6_schedule','_v6_clean_preview'):
+        for k in ('_v6_forecast','_v6_schedule','_v6_clean_preview','_v61_validation','_v61_simulation','_v61_review','_v61_peer_text','_v61_export_bytes','_v61_project_bytes'):
             st.session_state.pop(k,None)
     st.session_state['_v6_signature']=signature
 
@@ -37,16 +39,17 @@ def overview(frames,pages,df):
     cols[0].metric("Uploaded sources",len(frames))
     cols[1].metric("Active rows",len(df))
     cols[2].metric("Active variables",df.shape[1])
-    st.subheader("Quick access")
-    shortcuts=[("Data cleaner",NEW_PAGES[0]),("Loan forecasting",NEW_PAGES[1]),("Conference finder",NEW_PAGES[2]),("Zotero",NEW_PAGES[3]),("Research Chair","12B. Research Command Chair"),("Research design","3. Research questions"),("Econometrics","6. OLS & econometric laboratory"),("Agentic research","12D. Agentic Research Mode"),("Greece GIS","9. Detailed Greece GIS"),("ITA / public funding","12A.1 ITA / public-funding decision support"),("GAMS Studio","12A.1B GAMS-compatible ITA Studio"),("Methods","13. Methods & reproducibility")]
-    def navigate(target):
-        st.session_state["_v6_family"]="All modules"
-        st.session_state["_v6_module"]=target
-    for i in range(0,len(shortcuts),4):
-        for col,(label,target) in zip(st.columns(4),shortcuts[i:i+4]):
-            col.button(label,key="rc2_shortcut_"+str(i)+label,on_click=navigate,args=(target,),use_container_width=True)
+    from research_platform_ui import quick_start
+    quick_start()
+    with st.expander('More tools', expanded=False):
+        shortcuts=[('Loan forecasting',NEW_PAGES[1]),('Conference finder',NEW_PAGES[2]),('Zotero',NEW_PAGES[3]),('Agentic research','12D. Agentic Research Mode'),('ITA / public funding','12A.1 ITA / public-funding decision support'),('GAMS Studio','12A.1B GAMS-compatible ITA Studio'),('Methods','13. Methods & reproducibility'),('LLM connector','24. LLM connector setup')]
+        from research_platform_ui import route
+        for i in range(0,len(shortcuts),4):
+            for col,(label,target) in zip(st.columns(4),shortcuts[i:i+4]):
+                col.button(label,key='v61_more_'+label,on_click=route,args=(target,),use_container_width=True)
     st.subheader('Research workflow navigator')
-    q=st.text_area('Describe your research question (Greek or English)',key='_v6_question')
+    q=st.text_area('Describe your research question (Greek or English)',value=st.session_state.get('_v61_research_question',''),key='_v6_question')
+    st.session_state['_v61_research_question']=q
     if q.strip():
         routes=recommend(q); st.markdown('**Recommended workflow (rule-based, not an LLM inference)**')
         st.write('1. Upload source datasets and verify observation units, variable definitions and dates. 2. Audit each source independently. 3. Resolve duplicate keys, units and missingness before joining. 4. Choose the relevant estimator and map variables explicitly. 5. Review diagnostics and export the evidence.')
