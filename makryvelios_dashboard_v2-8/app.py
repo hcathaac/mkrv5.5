@@ -1,4 +1,4 @@
-"""Makryvelios Research Analytics & Econometrics Workbench v6.2.0-rc1.
+"""Makryvelios Research Analytics & Econometrics Workbench v6.2.1-rc1.
 
 Run locally:  streamlit run app.py
 """
@@ -63,6 +63,7 @@ from research_platform import project_read
 from research_pipeline_ui import PAGE as PIPELINE_PAGE, pipeline_ui
 from research_platform_ui import PAGES as PLATFORM_PAGES, validation_ui, projects_ui, peer_ui, journals_ui, simulation_ui, exports_ui, connector_ui
 from workbench_v6_ui import NEW_PAGES, clear_session, invalidate_on_change, overview, cleaner, loans, conferences, zotero
+from workbench_navigation import HOME, PIPELINE, observe as observe_navigation, navigate as navigate_module
 
 
 BASE = Path(__file__).resolve().parent
@@ -138,7 +139,7 @@ section[data-testid="stSidebar"] [data-testid="stTextInput"] input::placeholder{
 .stApp [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] *{color:#fff!important;-webkit-text-fill-color:#fff!important}
 
 </style>
-<div class="hero"><span class="status">RESEARCH WORKBENCH v6.2.0-rc1 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Intelligence</h1><p>Prepare data · Analyse · Validate · Publish. Your datasets, your research, your API keys.</p></div>
+<div class="hero"><span class="status">RESEARCH WORKBENCH v6.2.1-rc1 · ALL v5.7.2 + EARLIER CAPABILITIES RETAINED</span><h1>Makryvelios Research Intelligence</h1><p>Prepare data · Analyse · Validate · Publish. Your datasets, your research, your API keys.</p></div>
 """, unsafe_allow_html=True)
 
 
@@ -461,6 +462,21 @@ with st.sidebar:
     if not df.empty:
         st.caption(f"Active: {selected_label}\n\n{len(df):,} rows × {df.shape[1]:,} variables")
 
+
+# Navigation is independent of the data, approvals and pipeline state. Callbacks
+# run before the sidebar widgets are created, avoiding widget-state mutations.
+nav_history, nav_cursor = observe_navigation(st.session_state, page, pages)
+def _navigate(action):
+    navigate_module(st.session_state, action, pages)
+
+st.caption(f"Research workspace  /  {page}")
+nav_back, nav_home, nav_forward, nav_pipeline = st.columns([1, 1, 1, 2])
+nav_back.button("← Back", key="_v6_nav_back", on_click=_navigate, args=("back",), disabled=nav_cursor <= 0, use_container_width=True)
+nav_home.button("⌂ Home", key="_v6_nav_home", on_click=_navigate, args=("home",), disabled=page == HOME, use_container_width=True)
+nav_forward.button("Forward →", key="_v6_nav_forward", on_click=_navigate, args=("forward",), disabled=nav_cursor >= len(nav_history)-1, use_container_width=True)
+nav_pipeline.button("Pipeline / checkpoints", key="_v6_nav_pipeline", on_click=_navigate, args=("pipeline",), disabled=page == PIPELINE, use_container_width=True)
+if st.session_state.get("_v6_pipeline_temp") is not None:
+    st.caption("Private pipeline run retained in this session. Download a checkpoint in the pipeline before closing or updating the app. Navigation does not undo an approved stage.")
 
 if page == "1. Executive overview":
     overview(frames, pages, df)
@@ -2051,7 +2067,7 @@ elif page == "13. Methods & reproducibility":
     st.code("pip install -r requirements.txt", language="bash")
     st.caption("The app never sends raw uploaded datasets to a paid/external LLM automatically. Optional Ollama remains local; the user-key LLM co-pilot sends only a compact computed-evidence summary after an explicit LLM action. Eurostat GISCO is contacted solely to retrieve public map boundaries unless a custom GeoJSON is supplied.")
 
-    st.subheader("Version 6.2.0-rc1 documentation library")
+    st.subheader("Version 6.2.1-rc1 documentation library")
     st.markdown("v6 adds independent data intake, cleaning and audit, grouped navigation, loan forecasting, CFP discovery, Zotero and a local MCP adapter. The documentation below records historical capabilities.")
     st.info("The v5.5.0 technical report remains the architectural reference for the retained workbench. Version 5.8.5 is strictly additive over v5.8.4. It adds bounded, user-visible AI context profiles, focus-variable routing, relevance-ranked PDF evidence, per-request RQ batching and conservative token estimates so free-tier hosted models are not sent the entire 83+ variable/PDF context. Provider/model selection remains manual and visible with no automatic fallback. Version 5.8.4 hardened structured full-draft synthesis; v5.8.3 hardened RQ parsing; v5.8.2 added Gemini/Groq/Ollama and AI synthesis; all earlier analytical, GAMS/ITA, mapping, respondent, Research Chair, Frontier and export capabilities remain available.")
     documentation_files = [
